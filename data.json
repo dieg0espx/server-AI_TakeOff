@@ -1,10 +1,10 @@
 {
     "objects": {
-        "shores_Box": 0,
-        "shores": 0,
-        "frames_6x4": 0,
-        "frames_5x4": 0,
-        "frames_In_Box": 0
+        "shores_Box": 50,
+        "shores": 326,
+        "frames_6x4": 81,
+        "frames_5x4": 4,
+        "frames_In_Box": 25
     },
     "modified_drawing": "files/Step4.svg",
     "modified_drawing_png": "files/Step4.png"
