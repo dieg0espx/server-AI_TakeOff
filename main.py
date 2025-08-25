@@ -21,6 +21,9 @@ from utils.config_manager import config_manager
 # Import the PDF to SVG converter
 from pdf_to_svg_converter import ConvertioConverter
 
+# Import the processing pipeline
+from processors.index import main as run_pipeline
+
 # Create FastAPI instance
 app = FastAPI(
     title="AI-Takeoff Server",
@@ -113,6 +116,17 @@ async def process_ai_takeoff(upload_id: str):
                 
                 print(f"📊 File sizes - PDF: {pdf_size} bytes, SVG: {svg_size} bytes")
                 
+                # Start the processing pipeline
+                print(f"🚀 Starting AI processing pipeline...")
+                try:
+                    pipeline_success = run_pipeline()
+                    if pipeline_success:
+                        print(f"✅ Processing pipeline completed successfully")
+                    else:
+                        print(f"⚠️  Processing pipeline completed with some failures")
+                except Exception as pipeline_error:
+                    print(f"❌ Error in processing pipeline: {pipeline_error}")
+                
             except Exception as conversion_error:
                 print(f"❌ Error in SVG conversion: {conversion_error}")
         else:
@@ -157,6 +171,17 @@ async def process_ai_takeoff_sync(upload_id: str):
                 print(f"✅ SVG saved to: {svg_path}")
                 
                 svg_size = os.path.getsize(svg_path) if os.path.exists(svg_path) else 0
+                
+                # Start the processing pipeline
+                print(f"🚀 Starting AI processing pipeline...")
+                try:
+                    pipeline_success = run_pipeline()
+                    if pipeline_success:
+                        print(f"✅ Processing pipeline completed successfully")
+                    else:
+                        print(f"⚠️  Processing pipeline completed with some failures")
+                except Exception as pipeline_error:
+                    print(f"❌ Error in processing pipeline: {pipeline_error}")
                 
             except Exception as conversion_error:
                 print(f"❌ Error in SVG conversion: {conversion_error}")

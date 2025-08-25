@@ -54,7 +54,6 @@ uvicorn main:app --reload --host 0.0.0.0 --port 5001
 
 #### AI-Takeoff Endpoints
 - `GET /AI-Takeoff/{upload_id}` - Get AI processing result for specific upload
-- `POST /AI-Takeoff/upload` - Upload file for AI processing
 
 #### Example Data
 - `GET /example-data` - Get sample data
@@ -63,9 +62,6 @@ uvicorn main:app --reload --host 0.0.0.0 --port 5001
 
 ### Test AI-Takeoff endpoints
 ```bash
-# Upload file for AI processing
-curl -X POST "http://localhost:5001/AI-Takeoff/upload"
-
 # Get AI processing result
 curl "http://localhost:5001/AI-Takeoff/test123"
 ```
