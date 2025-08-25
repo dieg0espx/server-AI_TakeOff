@@ -26,8 +26,10 @@ def run_step(step_name):
         spec.loader.exec_module(step_module)
         
         # Call the run function for the step
-        if hasattr(step_module, f'run_{step_name.lower()}'):
-            success = step_module.run_step1()
+        run_function_name = f'run_{step_name.lower()}'
+        if hasattr(step_module, run_function_name):
+            run_function = getattr(step_module, run_function_name)
+            success = run_function()
             if success:
                 print(f"✅ {step_name} completed successfully")
                 return True
@@ -79,11 +81,10 @@ def main():
     
     # Define the processing steps in order
     steps = [
-        "Step1",  # Remove duplicate paths and convert to PNG
-        # Add future steps here as they are created:
-        # "Step2",  # Example: Color analysis
-        # "Step3",  # Example: Shape detection
-        # "Step4",  # Example: Pattern recognition
+        "Step1",  # Remove duplicate paths
+        "Step2",  # Modify colors (lightgray and black)
+        "Step3",  # Add background
+        "Step4",  # Apply color coding to specific patterns
     ]
     
     successful_steps = 0
