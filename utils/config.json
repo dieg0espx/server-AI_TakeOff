@@ -1,0 +1,13 @@
+{
+    "app_config": {
+        "host": "0.0.0.0",
+        "port": 5001,
+        "title": "AI-Takeoff Server",
+        "description": "AI-Takeoff API server",
+        "version": "1.0.0"
+    },
+    "current_state": {
+        "google_drive_file_id": "1MD_50TBNGlxWSZ-xhtX8YFllqVTuImS7",
+        "last_updated": "2025-08-25T16:08:45.455537"
+    }
+}
