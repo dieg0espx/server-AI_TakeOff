@@ -17,6 +17,7 @@ IMAGE_NAME="ai-takeoff-api"
 TAG="latest"
 PORT="5001"
 ENV_FILE=".env"
+DOCKERFILE="Dockerfile"
 
 # Function to print colored output
 print_status() {
@@ -53,10 +54,12 @@ show_usage() {
     echo "  -t, --tag TAG        Docker image tag (default: latest)"
     echo "  -p, --port PORT      Port to expose (default: 5001)"
     echo "  -e, --env FILE       Environment file (default: .env)"
+    echo "  -f, --file FILE      Dockerfile to use (default: Dockerfile)"
     echo "  -h, --help           Show this help message"
     echo ""
     echo "Examples:"
     echo "  $0 build"
+    echo "  $0 build -f Dockerfile.minimal"
     echo "  $0 run -p 8080"
     echo "  $0 dev"
     echo "  $0 clean"
@@ -79,8 +82,12 @@ check_env_file() {
 
 # Function to build Docker image
 build_image() {
-    print_status "Building Docker image: $IMAGE_NAME:$TAG"
-    docker build -t "$IMAGE_NAME:$TAG" .
+    print_status "Building Docker image: $IMAGE_NAME:$TAG using $DOCKERFILE"
+    if [ ! -f "$DOCKERFILE" ]; then
+        print_error "Dockerfile $DOCKERFILE not found"
+        exit 1
+    fi
+    docker build -f "$DOCKERFILE" -t "$IMAGE_NAME:$TAG" .
     print_success "Docker image built successfully"
 }
 
@@ -224,6 +231,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -e|--env)
             ENV_FILE="$2"
+            shift 2
+            ;;
+        -f|--file)
+            DOCKERFILE="$2"
             shift 2
             ;;
         -h|--help)
