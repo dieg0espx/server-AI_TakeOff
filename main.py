@@ -248,6 +248,11 @@ app.add_middleware(
 async def root():
     return {"message": "AI-Takeoff Server is running!", "status": "running"}
 
+# Health check endpoint for Railway
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "service": "AI-Takeoff Server"}
+
 
 # AI-Takeoff specific endpoint
 @app.get("/AI-Takeoff/{upload_id}")
@@ -468,4 +473,5 @@ async def process_ai_takeoff_sync(upload_id: str):
     return result
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=5001)
+    port = int(os.getenv("PORT", 5001))
+    uvicorn.run(app, host="0.0.0.0", port=port)
