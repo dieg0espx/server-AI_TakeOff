@@ -147,7 +147,7 @@ async def upload_original_png_to_cloudinary(upload_id: str, svg_path: str) -> st
 
 # Modified pipeline runner with logging support
 def run_pipeline_with_logging(upload_id: str):
-    """Run the processing pipeline with logging"""
+    """Run the processing pipeline with logging and detailed error tracking"""
     import sys
     import os
     import importlib.util
@@ -168,6 +168,8 @@ def run_pipeline_with_logging(upload_id: str):
     successful_steps = 0
     total_steps = len(steps)
     step_counts = {}
+    failed_step = None
+    error_details = None
     
     # Run each step in sequence
     for i, step in enumerate(steps):
@@ -176,8 +178,11 @@ def run_pipeline_with_logging(upload_id: str):
             step_file = f"processors/{step}.py"
             
             if not os.path.exists(step_file):
-                print(f"Step file {step_file} not found. Skipping...")
-                continue
+                error_msg = f"Step file {step_file} not found"
+                print(f"❌ {error_msg}")
+                failed_step = step
+                error_details = error_msg
+                break
             
             print(f"\n{'='*50}")
             print(f"Running {step}...")
@@ -203,14 +208,23 @@ def run_pipeline_with_logging(upload_id: str):
                     successful_steps += 1
                     print(f"✅ {step} completed successfully")
                 else:
-                    print(f"❌ {step} failed")
+                    error_msg = f"{step} execution returned False"
+                    print(f"❌ {error_msg}")
+                    failed_step = step
+                    error_details = error_msg
                     break
             else:
-                print(f"⚠️  No run function found for {step}")
+                error_msg = f"No run function found for {step}"
+                print(f"❌ {error_msg}")
+                failed_step = step
+                error_details = error_msg
                 break
                 
         except Exception as e:
-            print(f"❌ Error running {step}: {str(e)}")
+            error_msg = f"Exception in {step}: {str(e)}"
+            print(f"❌ {error_msg}")
+            failed_step = step
+            error_details = error_msg
             break
     
     # Summary
@@ -221,10 +235,10 @@ def run_pipeline_with_logging(upload_id: str):
     
     if successful_steps == total_steps:
         print(f"🎉 All steps completed successfully!")
+        return True, None, None
     else:
-        print(f"⚠️  Pipeline completed with some failures")
-    
-    return successful_steps == total_steps
+        print(f"❌ Pipeline failed at {failed_step}: {error_details}")
+        return False, failed_step, error_details
 
 # Initialize the PDF to SVG converter
 try:
@@ -360,8 +374,35 @@ async def process_ai_takeoff_sync(upload_id: str):
         await log_to_client(upload_id, f"📄 Starting PDF download for upload_id: {upload_id}")
         
         # Step 1: Download the PDF
-        file_path = download_pdf_from_drive(upload_id)
-        await log_to_client(upload_id, f"📄 PDF downloaded successfully to: {file_path}")
+        try:
+            file_path = download_pdf_from_drive(upload_id)
+            if not file_path or not os.path.exists(file_path):
+                error_msg = f"Failed to download PDF for upload_id: {upload_id}"
+                await log_to_client(upload_id, f"❌ {error_msg}", "error")
+                print(f"🚨 PDF DOWNLOAD FAILURE - Upload ID: {upload_id}")
+                print(f"🚨 Error: {error_msg}")
+                
+                return {
+                    "id": upload_id,
+                    "status": "error",
+                    "error": "PDF download failed",
+                    "error_details": error_msg,
+                    "message": f"Failed to download PDF from Google Drive for upload_id: {upload_id}"
+                }
+            await log_to_client(upload_id, f"📄 PDF downloaded successfully to: {file_path}")
+        except Exception as download_error:
+            error_msg = f"Exception during PDF download: {download_error}"
+            await log_to_client(upload_id, f"❌ {error_msg}", "error")
+            print(f"🚨 PDF DOWNLOAD EXCEPTION - Upload ID: {upload_id}")
+            print(f"🚨 Exception: {download_error}")
+            
+            return {
+                "id": upload_id,
+                "status": "error",
+                "error": "PDF download exception",
+                "error_details": str(download_error),
+                "message": f"Exception occurred while downloading PDF: {download_error}"
+            }
         
         # Step 2: Convert PDF to SVG
         svg_path = None
@@ -400,16 +441,65 @@ async def process_ai_takeoff_sync(upload_id: str):
                 # Start the processing pipeline
                 await log_to_client(upload_id, f"🚀 Starting AI processing pipeline...")
                 try:
-                    pipeline_success = run_pipeline_with_logging(upload_id)
+                    pipeline_success, failed_step, error_details = run_pipeline_with_logging(upload_id)
                     if pipeline_success:
                         await log_to_client(upload_id, f"✅ Processing pipeline completed successfully")
                     else:
-                        await log_to_client(upload_id, f"⚠️  Processing pipeline completed with some failures")
+                        error_msg = f"❌ Processing pipeline failed at {failed_step}: {error_details}"
+                        await log_to_client(upload_id, error_msg, "error")
+                        print(f"🚨 PIPELINE FAILURE - Upload ID: {upload_id}")
+                        print(f"🚨 Failed Step: {failed_step}")
+                        print(f"🚨 Error Details: {error_details}")
+                        print(f"🚨 Steps completed before failure: {failed_step}")
+                        
+                        # Return error response to client
+                        return {
+                            "id": upload_id,
+                            "status": "error",
+                            "error": f"Pipeline failed at {failed_step}",
+                            "error_details": error_details,
+                            "failed_step": failed_step,
+                            "message": f"AI processing failed at step {failed_step}. Check server logs for details.",
+                            "pdf_path": file_path,
+                            "pdf_size": os.path.getsize(file_path) if os.path.exists(file_path) else 0,
+                            "svg_path": svg_path,
+                            "svg_size": svg_size
+                        }
                 except Exception as pipeline_error:
-                    await log_to_client(upload_id, f"❌ Error in processing pipeline: {pipeline_error}", "error")
+                    error_msg = f"❌ Exception in processing pipeline: {pipeline_error}"
+                    await log_to_client(upload_id, error_msg, "error")
+                    print(f"🚨 PIPELINE EXCEPTION - Upload ID: {upload_id}")
+                    print(f"🚨 Exception: {pipeline_error}")
+                    
+                    # Return error response to client
+                    return {
+                        "id": upload_id,
+                        "status": "error",
+                        "error": "Pipeline exception",
+                        "error_details": str(pipeline_error),
+                        "message": f"AI processing failed with exception: {pipeline_error}",
+                        "pdf_path": file_path,
+                        "pdf_size": os.path.getsize(file_path) if os.path.exists(file_path) else 0,
+                        "svg_path": svg_path,
+                        "svg_size": svg_size
+                    }
                 
             except Exception as conversion_error:
-                await log_to_client(upload_id, f"❌ Error in SVG conversion: {conversion_error}", "error")
+                error_msg = f"❌ Error in SVG conversion: {conversion_error}"
+                await log_to_client(upload_id, error_msg, "error")
+                print(f"🚨 SVG CONVERSION FAILURE - Upload ID: {upload_id}")
+                print(f"🚨 Exception: {conversion_error}")
+                
+                # Return error response to client
+                return {
+                    "id": upload_id,
+                    "status": "error",
+                    "error": "SVG conversion failed",
+                    "error_details": str(conversion_error),
+                    "message": f"Failed to convert PDF to SVG: {conversion_error}",
+                    "pdf_path": file_path,
+                    "pdf_size": os.path.getsize(file_path) if os.path.exists(file_path) else 0
+                }
         else:
             await log_to_client(upload_id, f"⚠️  Skipping SVG conversion - CONVERTIO_API_KEY not set", "warning")
         
@@ -457,13 +547,19 @@ async def process_ai_takeoff_sync(upload_id: str):
             }
         
     except Exception as e:
-        await log_to_client(upload_id, f"❌ Error downloading PDF: {e}", "error")
+        error_msg = f"❌ Unexpected error in AI processing: {e}"
+        await log_to_client(upload_id, error_msg, "error")
+        print(f"🚨 UNEXPECTED ERROR - Upload ID: {upload_id}")
+        print(f"🚨 Exception: {e}")
+        print(f"🚨 Exception Type: {type(e).__name__}")
         
         result = {
             "id": upload_id,
             "status": "error",
-            "error": str(e),
-            "message": "Failed to download PDF from Google Drive"
+            "error": "Unexpected processing error",
+            "error_details": str(e),
+            "error_type": type(e).__name__,
+            "message": f"An unexpected error occurred during AI processing: {e}"
         }
     
     # Log final result
