@@ -12,6 +12,7 @@ import re
 import os
 import shutil
 import sys
+import json
 from datetime import datetime
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 import cairosvg
@@ -19,6 +20,25 @@ import io
 from PIL import Image
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
+
+def save_x_shapes_to_json(x_shapes_data, output_path):
+    """Save X shapes data to JSON file"""
+    try:
+        # Create the JSON structure
+        json_data = {
+            "total_x_shapes": len(x_shapes_data),
+            "x_shapes": x_shapes_data
+        }
+        
+        # Write to JSON file
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(json_data, f, indent=2, ensure_ascii=False)
+        
+        print(f"X shapes data saved to: {output_path}")
+        return True
+    except Exception as e:
+        print(f"Error saving X shapes data to JSON: {e}")
+        return False
 
 def svg_to_image(svg_path, output_path=None):
     """Convert SVG to PIL Image"""
@@ -41,7 +61,7 @@ def svg_to_image(svg_path, output_path=None):
         print(f"Error converting SVG to image: {e}", "error")
         return None
 
-def detect_blue_x_shapes(image_path, output_path='results.png'):
+def detect_blue_x_shapes(image_path, output_path='results.png', json_output_path=None):
     """Detect individual blue X shapes using contour detection"""
     
     print(f"Processing image: {image_path}")
@@ -52,7 +72,7 @@ def detect_blue_x_shapes(image_path, output_path='results.png'):
         print("Converting SVG to image for processing...")
         pil_image = svg_to_image(image_path)
         if pil_image is None:
-            return 0
+            return 0, []
         
         # Convert PIL Image to OpenCV format
         img = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
@@ -63,7 +83,7 @@ def detect_blue_x_shapes(image_path, output_path='results.png'):
     if img is None:
         
         print(f"Error: Could not read image {image_path}", "error")
-        return 0
+        return 0, []
     
     # Convert to HSV for better color detection
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
@@ -161,6 +181,9 @@ def detect_blue_x_shapes(image_path, output_path='results.png'):
         valid_contours = grouped_contours
         print(f"Grouped into {len(valid_contours)} X shapes")
     
+    # Collect X shapes data for JSON output
+    x_shapes_data = []
+    
     # Draw results
     result_img = img.copy()
     
@@ -178,9 +201,23 @@ def detect_blue_x_shapes(image_path, output_path='results.png'):
         cv2.putText(result_img, label, (int(x), int(y)-10), 
                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
         
+        # Collect data for JSON
+        x_shape_data = {
+            "id": i + 1,
+            "x": float(x),
+            "y": float(y),
+            "width": float(w),
+            "height": float(h),
+            "center_x": float(x + w / 2),
+            "center_y": float(y + h / 2),
+            "area": float(w * h),
+            "contours_count": len(contours_group)
+        }
+        x_shapes_data.append(x_shape_data)
+        
         print(f"X{i+1}: Size={w:.1f}x{h:.1f}, Contours={len(contours_group)}")
     
-    # Save result
+    # Save result image
     if output_path.lower().endswith('.svg'):
         # Convert back to PIL and save as SVG-compatible format
         result_pil = Image.fromarray(cv2.cvtColor(result_img, cv2.COLOR_BGR2RGB))
@@ -192,9 +229,13 @@ def detect_blue_x_shapes(image_path, output_path='results.png'):
         cv2.imwrite(output_path, result_img)
         print(f"Result saved as: {output_path}")
     
+    # Save X shapes data to JSON if path provided
+    if json_output_path:
+        save_x_shapes_to_json(x_shapes_data, json_output_path)
+    
     print(f"Total X shapes detected: {len(valid_contours)}")
     
-    return len(valid_contours)
+    return len(valid_contours), x_shapes_data
 
 def process_svg_colors(input_svg, output_svg):
     """
@@ -249,11 +290,13 @@ def run_step5():
             input_svg = "../files/Step4.svg"
             output_svg = "../files/Step5.svg"
             output_results = "../files/Step5-results.svg"
+            json_output = "../x-shores.json"
         else:
             # If we're in the server directory (when called from pipeline), use direct paths
             input_svg = "files/Step4.svg"
             output_svg = "files/Step5.svg"
             output_results = "files/Step5-results.svg"
+            json_output = "x-shores.json"
         
         # First process SVG colors
         process_svg_colors(input_svg, output_svg)
@@ -261,7 +304,7 @@ def run_step5():
         # Then detect blue X shapes on the processed SVG
         
         print(f"Detecting blue X shapes in: {output_svg}")
-        count = detect_blue_x_shapes(output_svg, output_results)
+        count, x_shapes_data = detect_blue_x_shapes(output_svg, output_results, json_output)
         print(f"\nFinal count: {count} blue X shapes")
         
         return True
@@ -288,7 +331,7 @@ def main():
         return
     
     # Detect X shapes
-    count = detect_blue_x_shapes(source_path, args.output)
+    count, x_shapes_data = detect_blue_x_shapes(source_path, args.output)
     
     print(f"\nFinal count: {count} blue X shapes")
 
@@ -302,11 +345,13 @@ if __name__ == "__main__":
             input_svg = "../files/Step4.svg"
             output_svg = "../files/Step5.svg"
             output_results = "../files/Step5-results.svg"
+            json_output = "../x-shores.json"
         else:
             # If we're in the server directory (when called from pipeline), use direct paths
             input_svg = "files/Step4.svg"
             output_svg = "files/Step5.svg"
             output_results = "files/Step5-results.svg"
+            json_output = "x-shores.json"
         
         # First process SVG colors
         process_svg_colors(input_svg, output_svg)
@@ -314,7 +359,7 @@ if __name__ == "__main__":
         # Then detect blue X shapes on the processed SVG
         
         print(f"Detecting blue X shapes in: {output_svg}")
-        count = detect_blue_x_shapes(output_svg, output_results)
+        count, x_shapes_data = detect_blue_x_shapes(output_svg, output_results, json_output)
         print(f"\nFinal count: {count} blue X shapes")
         
     except Exception as e:

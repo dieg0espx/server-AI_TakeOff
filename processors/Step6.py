@@ -12,6 +12,7 @@ from pathlib import Path
 import argparse
 import cairosvg
 import io
+import json
 from PIL import Image
 import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
@@ -25,6 +26,25 @@ shores = re.compile(
     r'(33|34),-?(33|34)|'
     r'(33|34),(33|34))[^"]*"[^>]*>'
 )
+
+def save_red_squares_to_json(red_squares_data, output_path):
+    """Save red squares data to JSON file"""
+    try:
+        # Create the JSON structure
+        json_data = {
+            "total_red_squares": len(red_squares_data),
+            "red_squares": red_squares_data
+        }
+        
+        # Write to JSON file
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(json_data, f, indent=2, ensure_ascii=False)
+        
+        print(f"Red squares data saved to: {output_path}")
+        return True
+    except Exception as e:
+        print(f"Error saving red squares data to JSON: {e}")
+        return False
 
 def svg_to_image(svg_path, output_path=None):
     """Convert SVG to PIL Image"""
@@ -47,7 +67,7 @@ def svg_to_image(svg_path, output_path=None):
         print(f"Error converting SVG to image: {e}", "error")
         return None
 
-def detect_red_squares(image_path, output_path='results.png'):
+def detect_red_squares(image_path, output_path='results.png', json_output_path=None):
     """Detect individual red squares with color #fb0505 using contour detection"""
     
     print(f"Processing image: {image_path}")
@@ -58,7 +78,7 @@ def detect_red_squares(image_path, output_path='results.png'):
         print("Converting SVG to image for processing...")
         pil_image = svg_to_image(str(image_path))
         if pil_image is None:
-            return 0
+            return 0, []
         
         # Convert PIL Image to OpenCV format
         img = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
@@ -69,7 +89,7 @@ def detect_red_squares(image_path, output_path='results.png'):
     if img is None:
         
         print(f"Error: Could not read image {image_path}", "error")
-        return 0
+        return 0, []
     
     print(f"Image loaded successfully: {img.shape}")
     
@@ -243,6 +263,9 @@ def detect_red_squares(image_path, output_path='results.png'):
         valid_contours = grouped_contours
         print(f"Grouped into {len(valid_contours)} squares")
     
+    # Collect red squares data for JSON output
+    red_squares_data = []
+    
     # Draw results
     result_img = img.copy()
     
@@ -260,11 +283,30 @@ def detect_red_squares(image_path, output_path='results.png'):
         cv2.putText(result_img, label, (int(x), int(y)-10), 
                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
         
+        # Collect data for JSON
+        red_square_data = {
+            "id": i + 1,
+            "x": float(x),
+            "y": float(y),
+            "width": float(w),
+            "height": float(h),
+            "center_x": float(x + w / 2),
+            "center_y": float(y + h / 2),
+            "area": float(w * h),
+            "contours_count": len(contours_group)
+        }
+        red_squares_data.append(red_square_data)
+        
         print(f"Square{i+1}: Size={w:.1f}x{h:.1f}, Contours={len(contours_group)}")
     
-    # Save result
+    # Save result image
     cv2.imwrite(output_path, result_img)
     print(f"Result saved as: {output_path}")
+    
+    # Save red squares data to JSON if path provided
+    if json_output_path:
+        save_red_squares_to_json(red_squares_data, json_output_path)
+    
     print(f"Total squares detected: {len(valid_contours)}")
     
     # Delete the debug mask file after processing
@@ -273,7 +315,7 @@ def detect_red_squares(image_path, output_path='results.png'):
         os.remove(debug_mask_path)
         print(f"Debug mask deleted: {debug_mask_path}")
     
-    return len(valid_contours)
+    return len(valid_contours), red_squares_data
 
 def process_svg_colors():
     # Get the current working directory to determine the correct paths
@@ -413,13 +455,19 @@ def process_svg_colors():
     # PHASE 4: Contour-based object detection
     print("\nPHASE 4: Contour-based object detection on Step6.svg")
     
+    # Define JSON output path
+    json_output = "square-shores.json"
+    if current_dir.endswith('processors'):
+        json_output = "../square-shores.json"
+    
     try:
         # Detect red squares in the processed SVG
-        count = detect_red_squares(output_svg, output_results)
-        print(f"Phase 3 completed: Detected {count} red squares")
+        count, red_squares_data = detect_red_squares(output_svg, output_results, json_output)
+        print(f"Phase 4 completed: Detected {count} red squares")
         print(f"Results saved to: {output_results}")
+        print(f"JSON data saved to: {json_output}")
     except Exception as e:
-        print(f"Phase 3 error: {e}", "error")
+        print(f"Phase 4 error: {e}", "error")
         print("Note: Make sure cairosvg is installed: pip install cairosvg", "warning")
 
 def run_step6():
@@ -470,7 +518,7 @@ def main():
             print(f"Error: Source not found at {source_path}", "error")
             return
         
-        count = detect_red_squares(source_path, args.output)
+        count, red_squares_data = detect_red_squares(source_path, args.output)
         print(f"\nFinal count: {count} red squares (#fb0505)")
     else:
         # Run full SVG processing pipeline

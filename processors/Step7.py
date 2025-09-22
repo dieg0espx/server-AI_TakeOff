@@ -17,8 +17,18 @@ from datetime import datetime
 import cairosvg
 import io
 from PIL import Image
+import json
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
+
+def save_pink_frames_to_json(pink_frames_data, output_path):
+    """Save pink frame data to JSON file"""
+    try:
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(pink_frames_data, f, indent=2, ensure_ascii=False)
+        print(f"Pink frames data saved to: {output_path}")
+    except Exception as e:
+        print(f"Error saving pink frames to JSON: {e}")
 
 def svg_to_image(svg_path, output_path=None):
     """Convert SVG to PIL Image"""
@@ -41,7 +51,7 @@ def svg_to_image(svg_path, output_path=None):
         print(f"Error converting SVG to image: {e}", "error")
         return None
 
-def detect_pink_shapes(image_path, output_path='pink_results.png'):
+def detect_pink_shapes(image_path, output_path='pink_results.png', save_json=True):
     """Detect individual pink shapes using contour detection"""
     
     print(f"Processing image: {image_path}")
@@ -51,7 +61,7 @@ def detect_pink_shapes(image_path, output_path='pink_results.png'):
         print("Converting SVG to image for processing...")
         pil_image = svg_to_image(image_path)
         if pil_image is None:
-            return 0
+            return 0, []
         
         # Convert PIL Image to OpenCV format
         img = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
@@ -61,7 +71,7 @@ def detect_pink_shapes(image_path, output_path='pink_results.png'):
     
     if img is None:
         print(f"Error: Could not read image {image_path}", "error")
-        return 0
+        return 0, []
     
     # Convert to HSV for better color detection
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
@@ -153,7 +163,13 @@ def detect_pink_shapes(image_path, output_path='pink_results.png'):
         valid_contours = grouped_contours
         print(f"Grouped into {len(valid_contours)} pink shapes")
     
-    # Draw results
+    # Prepare pink frames data for JSON storage
+    pink_frames_data = {
+        "total_pink_shapes": len(valid_contours),
+        "pink_shapes": []
+    }
+    
+    # Draw results and collect data
     result_img = img.copy()
     
     # Draw contours and bounding boxes
@@ -172,6 +188,26 @@ def detect_pink_shapes(image_path, output_path='pink_results.png'):
         
         # Calculate total area for this shape
         total_area = sum(c[5] for c in contours_group)
+        
+        # Calculate center coordinates
+        center_x = x + w / 2
+        center_y = y + h / 2
+        
+        # Store pink shape data
+        pink_shape_data = {
+            "id": i + 1,
+            "x": float(x),
+            "y": float(y),
+            "width": float(w),
+            "height": float(h),
+            "center_x": float(center_x),
+            "center_y": float(center_y),
+            "area": float(total_area),
+            "contours_count": len(contours_group)
+        }
+        
+        pink_frames_data["pink_shapes"].append(pink_shape_data)
+        
         print(f"Pink{i+1}: Size={w:.1f}x{h:.1f}, Area={total_area:.1f}, Contours={len(contours_group)}")
     
     # Save result
@@ -186,9 +222,24 @@ def detect_pink_shapes(image_path, output_path='pink_results.png'):
         cv2.imwrite(output_path, result_img)
         print(f"Result saved as: {output_path}")
     
+    # Save pink frames data to JSON if requested
+    if save_json:
+        # Determine the JSON output path
+        if output_path.lower().endswith('.svg'):
+            json_path = output_path.replace('.svg', '_frames.json')
+        else:
+            json_path = output_path.replace('.png', '_frames.json')
+        
+        # If we're in processors directory, adjust path for JSON
+        current_dir = os.getcwd()
+        if current_dir.endswith('processors'):
+            json_path = json_path.replace('../files/', '../')
+        
+        save_pink_frames_to_json(pink_frames_data, json_path)
+    
     print(f"Total pink shapes detected: {len(valid_contours)}")
     
-    return len(valid_contours)
+    return len(valid_contours), pink_frames_data
 
 def parse_path_data(d):
     """Parse SVG path data to extract coordinates"""
@@ -387,11 +438,13 @@ def run_step7():
             input_svg = "../files/Step4.svg"
             output_svg = "../files/Step7.svg"
             output_results = "../files/Step7-results.png"
+            json_output = "../pinkFrames.json"
         else:
             # If we're in the server directory (when called from pipeline), use direct paths
             input_svg = "files/Step4.svg"
             output_svg = "files/Step7.svg"
             output_results = "files/Step7-results.png"
+            json_output = "pinkFrames.json"
         
         # First process SVG colors
         process_svg_colors(input_svg, output_svg)
@@ -399,8 +452,13 @@ def run_step7():
         # Then detect pink shapes on the processed SVG
         
         print(f"Detecting pink shapes in: {output_svg}")
-        count = detect_pink_shapes(output_svg, output_results)
+        count, pink_frames_data = detect_pink_shapes(output_svg, output_results, save_json=False)
+        
+        # Save pink frames data to the specified JSON file
+        save_pink_frames_to_json(pink_frames_data, json_output)
+        
         print(f"\nFinal count: {count} pink shapes")
+        print(f"Pink frames data saved to: {json_output}")
         
         return True
         
@@ -415,6 +473,8 @@ def main():
                        help='Path to image')
     parser.add_argument('--output', type=str, default='pink_results.png',
                        help='Output image path')
+    parser.add_argument('--json-output', type=str, default='pinkFrames.json',
+                       help='Output JSON file path')
     
     args = parser.parse_args()
     
@@ -425,9 +485,13 @@ def main():
         return
     
     # Detect pink shapes
-    count = detect_pink_shapes(source_path, args.output)
+    count, pink_frames_data = detect_pink_shapes(source_path, args.output, save_json=False)
+    
+    # Save pink frames data to JSON
+    save_pink_frames_to_json(pink_frames_data, args.json_output)
     
     print(f"\nFinal count: {count} pink shapes")
+    print(f"Pink frames data saved to: {args.json_output}")
 
 if __name__ == "__main__":
     try:
@@ -439,11 +503,13 @@ if __name__ == "__main__":
             input_svg = "../files/Step4.svg"
             output_svg = "../files/Step7.svg"
             output_results = "../files/Step7-results.png"
+            json_output = "../pinkFrames.json"
         else:
             # If we're in the server directory (when called from pipeline), use direct paths
             input_svg = "files/Step4.svg"
             output_svg = "files/Step7.svg"
             output_results = "files/Step7-results.png"
+            json_output = "pinkFrames.json"
         
         # First process SVG colors
         process_svg_colors(input_svg, output_svg)
@@ -451,8 +517,13 @@ if __name__ == "__main__":
         # Then detect pink shapes on the processed SVG
         
         print(f"Detecting pink shapes in: {output_svg}")
-        count = detect_pink_shapes(output_svg, output_results)
+        count, pink_frames_data = detect_pink_shapes(output_svg, output_results, save_json=False)
+        
+        # Save pink frames data to the specified JSON file
+        save_pink_frames_to_json(pink_frames_data, json_output)
+        
         print(f"\nFinal count: {count} pink shapes")
+        print(f"Pink frames data saved to: {json_output}")
         
     except Exception as e:
         

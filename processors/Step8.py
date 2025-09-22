@@ -15,6 +15,7 @@ import cairosvg
 import io
 from PIL import Image
 import sys
+import json
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 
@@ -49,7 +50,7 @@ def detect_green_rectangles(image_path, output_path='results.png'):
         print("Converting SVG to image for processing...")
         pil_image = svg_to_image(image_path)
         if pil_image is None:
-            return 0
+            return 0, []
         
         # Convert PIL Image to OpenCV format
         img = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
@@ -59,7 +60,7 @@ def detect_green_rectangles(image_path, output_path='results.png'):
     
     if img is None:
         print(f"Error: Could not read image {image_path}", "error")
-        return 0
+        return 0, []
     
     # Convert to HSV for better color detection
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
@@ -161,6 +162,9 @@ def detect_green_rectangles(image_path, output_path='results.png'):
     # Create result image by copying the original image
     result_img = img.copy()
     
+    # List to store rectangle data
+    rectangles_data = []
+    
     # Draw results
     # Draw contours and bounding boxes
     for i, (contours_group, x, y, w, h) in enumerate(valid_contours):
@@ -175,6 +179,19 @@ def detect_green_rectangles(image_path, output_path='results.png'):
         label = f"{i+1}"
         cv2.putText(result_img, label, (int(x), int(y)-10), 
                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        
+        # Store rectangle data
+        rectangle_info = {
+            "id": i + 1,
+            "x": float(x),
+            "y": float(y),
+            "width": float(w),
+            "height": float(h),
+            "contours_count": len(contours_group),
+            "center_x": float(x + w/2),
+            "center_y": float(y + h/2)
+        }
+        rectangles_data.append(rectangle_info)
         
         print(f"{i+1}: Size={w:.1f}x{h:.1f}, Contours={len(contours_group)}")
     
@@ -191,7 +208,41 @@ def detect_green_rectangles(image_path, output_path='results.png'):
         print(f"Result saved as: {output_path}")
     print(f"Total rectangles detected: {len(valid_contours)}")
     
-    return len(valid_contours)
+    return len(valid_contours), rectangles_data
+
+def save_rectangles_to_json(rectangles_data, output_file='greenFrames.json'):
+    """Save rectangle data to JSON file"""
+    try:
+        # Get the current working directory to determine the correct paths
+        current_dir = os.getcwd()
+        
+        # If we're in the processors directory, use relative paths
+        if current_dir.endswith('processors'):
+            json_path = f"../{output_file}"
+        else:
+            # If we're in the server directory (when called from pipeline), use direct paths
+            json_path = output_file
+        
+        # Prepare the data structure
+        output_data = {
+            "total_rectangles": len(rectangles_data),
+            "rectangles": rectangles_data,
+            "metadata": {
+                "description": "Green rectangle detection results",
+                "format": "x, y coordinates (top-left corner), width, height, center coordinates"
+            }
+        }
+        
+        # Save to JSON file
+        with open(json_path, 'w', encoding='utf-8') as f:
+            json.dump(output_data, f, indent=2, ensure_ascii=False)
+        
+        print(f"Rectangle data saved to: {json_path}")
+        return True
+        
+    except Exception as e:
+        print(f"Error saving to JSON: {e}")
+        return False
 
 def parse_path_data(d):
     """Parse SVG path data to extract coordinates"""
@@ -441,8 +492,12 @@ def run_step8():
         # Then detect green rectangles on the processed SVG
         
         print(f"Detecting green rectangles in: {output_svg}")
-        count = detect_green_rectangles(output_svg, output_results)
+        count, rectangles_data = detect_green_rectangles(output_svg, output_results)
         print(f"\nFinal count: {count} green rectangles")
+        
+        # Save rectangle data to JSON
+        if rectangles_data:
+            save_rectangles_to_json(rectangles_data, 'greenFrames.json')
         
         return True
         
@@ -467,9 +522,13 @@ def main():
         return
     
     # Detect rectangles
-    count = detect_green_rectangles(source_path, args.output)
+    count, rectangles_data = detect_green_rectangles(source_path, args.output)
     
     print(f"\nFinal count: {count} green rectangles")
+    
+    # Save rectangle data to JSON
+    if rectangles_data:
+        save_rectangles_to_json(rectangles_data, 'greenFrames.json')
 
 if __name__ == "__main__":
     try:
@@ -493,8 +552,12 @@ if __name__ == "__main__":
         # Then detect green rectangles on the processed SVG
         
         print(f"Detecting green rectangles in: {output_svg}")
-        count = detect_green_rectangles(output_svg, output_results)
+        count, rectangles_data = detect_green_rectangles(output_svg, output_results)
         print(f"\nFinal count: {count} green rectangles")
+        
+        # Save rectangle data to JSON
+        if rectangles_data:
+            save_rectangles_to_json(rectangles_data, 'greenFrames.json')
         
     except Exception as e:
         
