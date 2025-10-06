@@ -166,8 +166,50 @@ def print_drawn_objects(green_rectangles, pink_rectangles, x_shapes, red_squares
 
 def add_containers_to_svg(svg_content, green_rectangles, pink_rectangles, x_shapes, red_squares, orange_rectangles):
     """Add container rectangles to SVG content"""
+    # Find the opening <svg> tag to get viewBox dimensions
+    svg_start_pos = svg_content.find('<svg')
+    if svg_start_pos == -1:
+        print("Error: Could not find opening <svg> tag")
+        return None
+    
+    # Extract viewBox from SVG tag
+    svg_tag_end = svg_content.find('>', svg_start_pos)
+    svg_tag = svg_content[svg_start_pos:svg_tag_end + 1]
+    
+    # Try to extract viewBox dimensions
+    import re
+    viewbox_match = re.search(r'viewBox="([^"]*)"', svg_tag)
+    if viewbox_match:
+        viewbox = viewbox_match.group(1).split()
+        if len(viewbox) >= 4:
+            width = float(viewbox[2])
+            height = float(viewbox[3])
+        else:
+            # Fallback dimensions if viewBox is not found
+            width = 3000
+            height = 2000
+    else:
+        # Fallback dimensions if viewBox is not found
+        width = 3000
+        height = 2000
+    
+    # Create dark gray background rectangle
+    background_element = f'''
+    <rect
+       id="background"
+       x="0"
+       y="0"
+       width="{width}"
+       height="{height}"
+       style="fill:#1c1c1c;stroke:none" />
+    '''
+    
+    # Insert background right after the opening <svg> tag
+    svg_tag_end_pos = svg_content.find('>', svg_start_pos) + 1
+    svg_with_background = svg_content[:svg_tag_end_pos] + '\n' + background_element + svg_content[svg_tag_end_pos:]
+    
     # Find the closing </svg> tag
-    svg_end_pos = svg_content.rfind('</svg>')
+    svg_end_pos = svg_with_background.rfind('</svg>')
     if svg_end_pos == -1:
         print("Error: Could not find closing </svg> tag")
         return None
@@ -195,7 +237,7 @@ def add_containers_to_svg(svg_content, green_rectangles, pink_rectangles, x_shap
     
     # Insert container elements before closing </svg> tag
     containers_svg = '\n'.join(container_elements)
-    modified_svg = svg_content[:svg_end_pos] + '\n' + containers_svg + '\n' + svg_content[svg_end_pos:]
+    modified_svg = svg_with_background[:svg_end_pos] + '\n' + containers_svg + '\n' + svg_with_background[svg_end_pos:]
     
     return modified_svg
 
