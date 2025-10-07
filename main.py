@@ -590,4 +590,8 @@ async def process_ai_takeoff_sync(upload_id: str):
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5001))
+    print(f"🚀 Starting AI-Takeoff Server on port {port}")
+    print(f"🌐 Server will be available at: http://0.0.0.0:{port}")
+    print(f"📋 Health check endpoint: http://0.0.0.0:{port}/health")
+    print(f"📚 API documentation: http://0.0.0.0:{port}/docs")
     uvicorn.run(app, host="0.0.0.0", port=port)
