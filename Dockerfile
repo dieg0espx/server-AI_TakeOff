@@ -55,9 +55,8 @@ RUN chmod +x start.sh
 # Expose port (Railway will override this with PORT env var)
 EXPOSE 5001
 
-# Health check disabled - Railway will deploy without health checks
-# HEALTHCHECK --interval=30s --timeout=30s --start-period=90s --retries=5 \
-#     CMD curl -f http://localhost:${PORT:-5001}/health || exit 1
+# Health check completely disabled for Railway deployment
+# Railway will deploy without any health checks
 
 # Run the application directly (simplified for Railway)
 CMD ["python", "main.py"]
