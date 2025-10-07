@@ -1,17 +1,23 @@
-# Use Python 3.13 slim image
-FROM python:3.13-slim
+# Use Python 3.11 slim image (more stable than 3.13)
+FROM python:3.11-slim
 
 # Set working directory
 WORKDIR /app
 
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
 # Install system dependencies required for the application
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    # For pdf2image
+    build-essential \
+    gcc \
+    g++ \
     poppler-utils \
-    # For pytesseract
     tesseract-ocr \
     tesseract-ocr-eng \
-    # For cairosvg
     libcairo2 \
     libcairo2-dev \
     libpango-1.0-0 \
@@ -19,15 +25,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgdk-pixbuf-2.0-0 \
     libffi-dev \
     shared-mime-info \
-    # For opencv-python
     libglib2.0-0 \
     libsm6 \
     libxext6 \
-    libxrender-dev \
+    libxrender1 \
     libgomp1 \
     libgl1 \
-    # General utilities
+    libglib2.0-dev \
+    pkg-config \
     curl \
+    wget \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
