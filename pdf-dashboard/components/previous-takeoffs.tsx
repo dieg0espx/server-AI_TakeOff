@@ -6,8 +6,10 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Calendar, FileText, Building, MapPin, Eye, Download } from "lucide-react"
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
+import { Calendar, FileText, Building, MapPin, Eye, Download, Trash2 } from "lucide-react"
 import { format } from "date-fns"
+import { useToast } from "@/hooks/use-toast"
 
 interface TakeOffData {
   id: string
@@ -51,6 +53,8 @@ export function PreviousTakeoffs({ limit = 20, onViewTakeoff }: PreviousTakeoffs
   const [error, setError] = useState<string | null>(null)
   const [totalCount, setTotalCount] = useState<number>(0)
   const [viewLoading, setViewLoading] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const { toast } = useToast()
 
   useEffect(() => {
     fetchTakeoffs()
@@ -160,6 +164,47 @@ export function PreviousTakeoffs({ limit = 20, onViewTakeoff }: PreviousTakeoffs
       } finally {
         setViewLoading(false)
       }
+    }
+  }
+
+  const handleDeleteTakeoff = async (takeoffId: string) => {
+    try {
+      setDeletingId(takeoffId)
+      
+      const response = await fetch(`/api/takeoffs/delete?id=${takeoffId}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        // Remove the deleted item from the local state
+        setTakeoffs(prevTakeoffs => prevTakeoffs.filter(takeoff => takeoff.id !== takeoffId))
+        setTotalCount(prevCount => prevCount - 1)
+        
+        toast({
+          title: "Success",
+          description: "Analysis result deleted successfully",
+        })
+      } else {
+        toast({
+          title: "Error",
+          description: data.message || "Failed to delete analysis result",
+          variant: "destructive",
+        })
+      }
+    } catch (err) {
+      console.error('Error deleting takeoff:', err)
+      toast({
+        title: "Error",
+        description: "Network error occurred while deleting the analysis result",
+        variant: "destructive",
+      })
+    } finally {
+      setDeletingId(null)
     }
   }
 
@@ -332,6 +377,36 @@ export function PreviousTakeoffs({ limit = 20, onViewTakeoff }: PreviousTakeoffs
                         Download
                       </Button>
                     )}
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          className="text-xs text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200 hover:border-red-300"
+                          disabled={deletingId === takeoff.id}
+                        >
+                          <Trash2 className="h-3 w-3 mr-1" />
+                          {deletingId === takeoff.id ? 'Deleting...' : 'Delete'}
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete Analysis Result</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Are you sure you want to delete "{takeoff.file_name}"? This action cannot be undone.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={() => handleDeleteTakeoff(takeoff.id)}
+                            className="bg-red-600 hover:bg-red-700"
+                          >
+                            Delete
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                   </div>
                 </div>
               </CardContent>

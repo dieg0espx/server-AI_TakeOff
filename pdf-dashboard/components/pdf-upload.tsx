@@ -159,17 +159,46 @@ export function PdfUpload({ onFileUpload }: PdfUploadProps) {
         { headers: { "Content-Type": "application/json" } }
       )
 
-      if (serverResponse.data.file_name !== '') {
-        console.log('GOT SERVER RESPONSE')
-        console.log(serverResponse.data)
-        // Call the original onFileUpload callback with the complete server response including company and jobsite
-        onFileUpload(selectedFile, {
-          ...serverResponse.data,
-          company: selectedCompany,
-          jobsite: selectedJobsite
-        })
+      // Server returns a URL - print it to console
+      console.log('📎 RECEIVED URL FROM SERVER:')
+      console.log(serverResponse.data)
+
+      // Step 5: Call the returned URL to get the actual analysis data
+      const dataUrl = serverResponse.data
+      console.log(`🔍 Fetching analysis data from: ${dataUrl}`)
+      
+      const analysisResponse = await axios.get(dataUrl, {
+        headers: { "Content-Type": "application/json" }
+      })
+
+      console.log('✅ ANALYSIS DATA RECEIVED:')
+      console.log(analysisResponse.data)
+
+      if (analysisResponse.data.success && analysisResponse.data.data) {
+        const analysisData = analysisResponse.data.data
+        
+        // Transform the data to match the expected format for the analysis page
+        const transformedData = {
+          id: analysisData.id.toString(),
+          status: analysisData.status,
+          message: 'Analysis completed successfully',
+          results: {
+            step_results: analysisData.step_results,
+            cloudinary_urls: analysisData.cloudinary_urls,
+            extracted_text: '' // Will be populated if needed
+          },
+          company: selectedCompany || analysisData.company,
+          jobsite: selectedJobsite || analysisData.jobsite
+        }
+        
+        console.log('📊 TRANSFORMED DATA FOR ANALYSIS PAGE:')
+        console.log(transformedData)
+        
+        // Pass the transformed data to the analysis page
+        onFileUpload(selectedFile, transformedData)
       } else {
-        setError(serverResponse.data.error || "Processing failed")
+        console.error('❌ Failed to fetch analysis data:', analysisResponse.data)
+        setError("Failed to fetch analysis data")
       }
     } catch (error) {
       console.error("❌ Upload Error:", error)

@@ -21,33 +21,42 @@ interface AnalysisResultsProps {
 }
 
 interface StepResult {
-  step5_blue_X_shapes: number
-  step6_red_squares: number
-  step7_pink_shapes: number
-  step8_green_rectangles: number
+  blue_x_shapes?: number
+  red_squares?: number
+  pink_shapes?: number
+  green_rectangles?: number
+  orange_rectangles?: number
+  total_detections?: number
+  // Legacy field names for backward compatibility
+  step5_blue_X_shapes?: number
+  step6_red_squares?: number
+  step7_pink_shapes?: number
+  step8_green_rectangles?: number
 }
 
 interface CloudinaryUrls {
-  original: string
-  step4_results: string
-  step5_results: string
-  step6_results: string
-  step7_results: string
-  step8_results: string
+  original?: string
+  step4_results?: string
+  step5_results?: string
+  step6_results?: string
+  step7_results?: string
+  step8_results?: string
+  step9_results?: string
+  step10_results?: string
 }
 
 interface AnalysisData {
   id: string
   status: string
-  pdf_path: string
-  pdf_size: number
-  svg_path: string
-  svg_size: number
-  message: string
+  pdf_path?: string
+  pdf_size?: number
+  svg_path?: string
+  svg_size?: number
+  message?: string
   results: {
     step_results: StepResult
     cloudinary_urls: CloudinaryUrls
-    extracted_text: string
+    extracted_text?: string
   }
 }
 
@@ -63,7 +72,14 @@ export function AnalysisResults({ fileName, result, onReset, company, jobsite }:
 
   // Parse the result data
   const analysisData: AnalysisData = typeof result === 'string' ? JSON.parse(result) : result
-  const extractedText = analysisData.results.extracted_text
+  const extractedText = analysisData.results.extracted_text || ''
+
+  // Log the received data for debugging
+  console.log('📈 ANALYSIS PAGE RECEIVED DATA:')
+  console.log('File Name:', fileName)
+  console.log('Company:', company)
+  console.log('Jobsite:', jobsite)
+  console.log('Analysis Data:', analysisData)
 
   // Automatically enhance text when component loads and save automatically
   useEffect(() => {
@@ -152,17 +168,20 @@ export function AnalysisResults({ fileName, result, onReset, company, jobsite }:
       const formData = new FormData()
       formData.append('id', analysisData.id)
       formData.append('file_name', fileName)
-      formData.append('file_size', analysisData.pdf_size.toString())
-      formData.append('blue_x_shapes', stepResults.step5_blue_X_shapes.toString())
-      formData.append('red_squares', stepResults.step6_red_squares.toString())
-      formData.append('pink_shapes', stepResults.step7_pink_shapes.toString())
-      formData.append('green_rectangles', stepResults.step8_green_rectangles.toString())
+      formData.append('file_size', (analysisData.pdf_size || 0).toString())
+      formData.append('blue_x_shapes', (stepResults.blue_x_shapes ?? stepResults.step5_blue_X_shapes ?? 0).toString())
+      formData.append('red_squares', (stepResults.red_squares ?? stepResults.step6_red_squares ?? 0).toString())
+      formData.append('pink_shapes', (stepResults.pink_shapes ?? stepResults.step7_pink_shapes ?? 0).toString())
+      formData.append('green_rectangles', (stepResults.green_rectangles ?? stepResults.step8_green_rectangles ?? 0).toString())
+      formData.append('orange_rectangles', (stepResults.orange_rectangles ?? 0).toString())
       formData.append('original_url', cloudinaryUrls.original || '')
       formData.append('step4_results_url', cloudinaryUrls.step4_results || '')
       formData.append('step5_results_url', cloudinaryUrls.step5_results || '')
       formData.append('step6_results_url', cloudinaryUrls.step6_results || '')
       formData.append('step7_results_url', cloudinaryUrls.step7_results || '')
       formData.append('step8_results_url', cloudinaryUrls.step8_results || '')
+      formData.append('step9_results_url', cloudinaryUrls.step9_results || '')
+      formData.append('step10_results_url', cloudinaryUrls.step10_results || '')
       formData.append('extracted_text', extractedText || '')
       formData.append('enhanced_text', rewrittenText || '') // Include enhanced text if available
       formData.append('status', analysisData.status)
@@ -210,8 +229,14 @@ export function AnalysisResults({ fileName, result, onReset, company, jobsite }:
       }, { requireAuth: false })
 
       if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to rewrite text')
+        let errorMessage = 'Failed to rewrite text'
+        try {
+          const errorData = await response.json()
+          errorMessage = errorData.error || errorMessage
+        } catch (parseError) {
+          errorMessage = `HTTP ${response.status}: ${response.statusText}`
+        }
+        throw new Error(errorMessage)
       }
 
       const data = await response.json()
@@ -297,76 +322,96 @@ export function AnalysisResults({ fileName, result, onReset, company, jobsite }:
 
   const stepConfigs = [
     {
-      key: 'step5_blue_X_shapes',
+      key: 'blue_x_shapes',
       title: 'Blue X Shapes',
-      count: stepResults.step5_blue_X_shapes,
+      count: stepResults.blue_x_shapes ?? stepResults.step5_blue_X_shapes ?? 0,
       icon: Hash,
       color: 'bg-blue-500',
       description: 'Detected X-shaped elements in blue'
     },
     {
-      key: 'step6_red_squares',
+      key: 'red_squares',
       title: 'Red Squares',
-      count: stepResults.step6_red_squares,
+      count: stepResults.red_squares ?? stepResults.step6_red_squares ?? 0,
       icon: Square,
       color: 'bg-red-500',
       description: 'Detected square elements in red'
     },
     {
-      key: 'step7_pink_shapes',
+      key: 'pink_shapes',
       title: 'Pink Shapes',
-      count: stepResults.step7_pink_shapes,
+      count: stepResults.pink_shapes ?? stepResults.step7_pink_shapes ?? 0,
       icon: Circle,
       color: 'bg-pink-500',
       description: 'Detected circular/pink elements'
     },
     {
-      key: 'step8_green_rectangles',
+      key: 'green_rectangles',
       title: 'Green Rectangles',
-      count: stepResults.step8_green_rectangles,
+      count: stepResults.green_rectangles ?? stepResults.step8_green_rectangles ?? 0,
       icon: RectangleHorizontal,
       color: 'bg-green-500',
       description: 'Detected rectangular elements in green'
-    }
+    },
+    ...(stepResults.orange_rectangles ? [{
+      key: 'orange_rectangles',
+      title: 'Orange Rectangles',
+      count: stepResults.orange_rectangles,
+      icon: RectangleHorizontal,
+      color: 'bg-orange-500',
+      description: 'Detected rectangular elements in orange'
+    }] : [])
   ]
 
   const imageSteps = [
-    {
+    ...(cloudinaryUrls.original ? [{
       key: 'original',
       title: 'Original Image',
       url: cloudinaryUrls.original,
       description: 'Original PDF converted to image'
-    },
-    {
+    }] : []),
+    ...(cloudinaryUrls.step4_results ? [{
       key: 'step4_results',
       title: 'Step 4 Results',
       url: cloudinaryUrls.step4_results,
       description: 'Initial processing results'
-    },
-    {
+    }] : []),
+    ...(cloudinaryUrls.step5_results ? [{
       key: 'step5_results',
       title: 'Step 5 Results',
       url: cloudinaryUrls.step5_results,
       description: 'Blue X shapes detection'
-    },
-    {
+    }] : []),
+    ...(cloudinaryUrls.step6_results ? [{
       key: 'step6_results',
       title: 'Step 6 Results',
       url: cloudinaryUrls.step6_results,
       description: 'Red squares detection'
-    },
-    {
+    }] : []),
+    ...(cloudinaryUrls.step7_results ? [{
       key: 'step7_results',
       title: 'Step 7 Results',
       url: cloudinaryUrls.step7_results,
       description: 'Pink shapes detection'
-    },
-    {
+    }] : []),
+    ...(cloudinaryUrls.step8_results ? [{
       key: 'step8_results',
       title: 'Step 8 Results',
       url: cloudinaryUrls.step8_results,
       description: 'Green rectangles detection'
-    }
+    }] : []),
+    ...(cloudinaryUrls.step9_results ? [{
+      key: 'step9_results',
+      title: 'Step 9 Results',
+      url: cloudinaryUrls.step9_results,
+      description: 'Orange rectangles detection'
+    }] : []),
+    ...(cloudinaryUrls.step10_results ? [{
+      key: 'step10_results',
+      title: 'Step 10 Results',
+      url: cloudinaryUrls.step10_results,
+      description: 'Final comprehensive analysis'
+    }] : [])
   ]
 
   return (
@@ -387,9 +432,11 @@ export function AnalysisResults({ fileName, result, onReset, company, jobsite }:
               </CardTitle>
               <CardDescription className="flex items-center gap-2">
                 <span>{fileName}</span>
-                <Badge variant="secondary" className="text-xs">
-                  {formatFileSize(analysisData.pdf_size)}
-                </Badge>
+                {analysisData.pdf_size && (
+                  <Badge variant="secondary" className="text-xs">
+                    {formatFileSize(analysisData.pdf_size)}
+                  </Badge>
+                )}
                 <Badge variant="outline" className="text-xs">
                   {analysisData.status}
                 </Badge>
@@ -450,22 +497,30 @@ export function AnalysisResults({ fileName, result, onReset, company, jobsite }:
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  <div className="flex justify-between">
-                    <span className="text-sm text-muted-foreground">PDF Size:</span>
-                    <span className="font-medium">{formatFileSize(analysisData.pdf_size)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm text-muted-foreground">SVG Size:</span>
-                    <span className="font-medium">{formatFileSize(analysisData.svg_size)}</span>
-                  </div>
+                  {analysisData.pdf_size && (
+                    <div className="flex justify-between">
+                      <span className="text-sm text-muted-foreground">PDF Size:</span>
+                      <span className="font-medium">{formatFileSize(analysisData.pdf_size)}</span>
+                    </div>
+                  )}
+                  {analysisData.svg_size && (
+                    <div className="flex justify-between">
+                      <span className="text-sm text-muted-foreground">SVG Size:</span>
+                      <span className="font-medium">{formatFileSize(analysisData.svg_size)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between">
                     <span className="text-sm text-muted-foreground">Processing ID:</span>
                     <span className="font-mono text-xs">{analysisData.id}</span>
                   </div>
-                  <Separator />
-                  <div className="text-sm text-muted-foreground">
-                    {analysisData.message}
-                  </div>
+                  {analysisData.message && (
+                    <>
+                      <Separator />
+                      <div className="text-sm text-muted-foreground">
+                        {analysisData.message}
+                      </div>
+                    </>
+                  )}
                 </CardContent>
               </Card>
 

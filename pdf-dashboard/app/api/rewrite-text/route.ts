@@ -4,13 +4,18 @@ export async function POST(request: NextRequest) {
   try {
     const { text, fileName } = await request.json()
 
-    if (!text) {
-      return NextResponse.json({ error: 'No text provided' }, { status: 400 })
+    if (!text || typeof text !== 'string') {
+      return NextResponse.json({ error: 'No valid text provided' }, { status: 400 })
+    }
+
+    if (text.trim().length === 0) {
+      return NextResponse.json({ error: 'Text cannot be empty' }, { status: 400 })
     }
 
     // Check if OpenAI API key is configured
     const openaiApiKey = process.env.OPENAI_API_KEY
     if (!openaiApiKey) {
+      console.error('OpenAI API key not configured')
       return NextResponse.json({ error: 'OpenAI API key not configured' }, { status: 500 })
     }
 
@@ -102,6 +107,18 @@ ${text}`
 
   } catch (error) {
     console.error('Error rewriting text:', error)
+    
+    // Provide more specific error messages
+    if (error instanceof Error) {
+      if (error.message.includes('fetch')) {
+        return NextResponse.json({ error: 'Network error connecting to OpenAI API' }, { status: 500 })
+      }
+      if (error.message.includes('JSON')) {
+        return NextResponse.json({ error: 'Invalid response format from OpenAI API' }, { status: 500 })
+      }
+      return NextResponse.json({ error: `Server error: ${error.message}` }, { status: 500 })
+    }
+    
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

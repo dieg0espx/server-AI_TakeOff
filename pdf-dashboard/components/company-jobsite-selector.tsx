@@ -187,8 +187,8 @@ export function CompanyJobsiteSelector({ onCompanySelect, onJobsiteSelect, onSel
                         <span className="ml-3 text-sm font-medium">Loading companies...</span>
                       </div>
                     ) : (
-                      companies.map((company) => (
-                        <SelectItem key={company} value={company} className="py-4">
+                      companies.map((company, index) => (
+                        <SelectItem key={`${company}-${index}`} value={company} className="py-4">
                           <span className="font-medium">{company}</span>
                         </SelectItem>
                       ))
@@ -301,8 +301,8 @@ export function CompanyJobsiteSelector({ onCompanySelect, onJobsiteSelect, onSel
                       <span className="ml-3 text-sm font-medium">Loading companies...</span>
                     </div>
                   ) : (
-                    companies.map((company) => (
-                      <SelectItem key={company} value={company} className="py-4">
+                    companies.map((company, index) => (
+                      <SelectItem key={`${company}-${index}`} value={company} className="py-4">
                         <span className="font-medium">{company}</span>
                       </SelectItem>
                     ))
