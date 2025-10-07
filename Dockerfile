@@ -59,6 +59,6 @@ EXPOSE 5001
 HEALTHCHECK --interval=30s --timeout=30s --start-period=90s --retries=5 \
     CMD curl -f http://localhost:${PORT:-5001}/health || exit 1
 
-# Run the application using startup script with fallback
-CMD ["sh", "-c", "./start.sh || python main.py"]
+# Run the application directly (simplified for Railway)
+CMD ["python", "main.py"]
 

@@ -589,9 +589,43 @@ async def process_ai_takeoff_sync(upload_id: str):
     return result
 
 if __name__ == "__main__":
+    print("=" * 60)
+    print("🚀 AI-Takeoff Server Starting...")
+    print("=" * 60)
+    
+    # Debug environment
+    print(f"📋 Environment Variables:")
+    print(f"  PORT: {os.getenv('PORT', 'NOT SET')}")
+    print(f"  PYTHONPATH: {os.getenv('PYTHONPATH', 'NOT SET')}")
+    print(f"  PWD: {os.getcwd()}")
+    
+    # Debug file system
+    print(f"📂 Current Directory Contents:")
+    try:
+        for item in os.listdir('.'):
+            print(f"  - {item}")
+    except Exception as e:
+        print(f"  Error listing directory: {e}")
+    
+    # Debug Python path
+    print(f"🐍 Python Path:")
+    import sys
+    for path in sys.path[:5]:  # Show first 5 paths
+        print(f"  - {path}")
+    
+    # Get port
     port = int(os.getenv("PORT", 5001))
-    print(f"🚀 Starting AI-Takeoff Server on port {port}")
-    print(f"🌐 Server will be available at: http://0.0.0.0:{port}")
+    print(f"🌐 Starting server on port {port}")
+    print(f"📋 Server will be available at: http://0.0.0.0:{port}")
     print(f"📋 Health check endpoint: http://0.0.0.0:{port}/health")
     print(f"📚 API documentation: http://0.0.0.0:{port}/docs")
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    print("=" * 60)
+    
+    try:
+        uvicorn.run(app, host="0.0.0.0", port=port)
+    except Exception as e:
+        print(f"❌ Error starting server: {e}")
+        print(f"❌ Error type: {type(e).__name__}")
+        import traceback
+        traceback.print_exc()
+        raise
