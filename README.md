@@ -1,36 +1,62 @@
-# FastAPI Server
+# AI-Takeoff Server
 
-A simple and fast API server built with FastAPI.
+A FastAPI-based server for processing construction drawings and performing AI-based takeoff analysis.
 
 ## Features
 
-- RESTful API endpoints for items and users
+- PDF to SVG conversion
+- Multi-step processing pipeline for construction drawings
+- Detection of various construction elements (X-shores, squares, frames, etc.)
+- Cloudinary integration for result storage
 - Automatic API documentation
 - CORS middleware enabled
-- Health check endpoint
-- Pydantic models for data validation
+- Health check endpoint for monitoring
+- Docker support for easy deployment
 
-## Setup
+## Environment Variables
 
-1. Install dependencies:
+Create a `.env` file in the root directory:
+
+```bash
+# Server Configuration
+PORT=5001
+
+# Convertio API (for PDF to SVG conversion)
+CONVERTIO_API_KEY=your_convertio_api_key_here
+
+# External API Configuration
+API_URL=https://ttfconstruction.com/ai-takeoff-results/create.php
+```
+
+Get your Convertio API key from: https://convertio.co/api/
+
+## Local Development Setup
+
+### Option 1: Using Python Virtual Environment
+
+1. **Create and activate virtual environment:**
+```bash
+python3 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+```
+
+2. **Install system dependencies (macOS):**
+```bash
+brew install poppler tesseract cairo pango gdk-pixbuf
+```
+
+**Install system dependencies (Ubuntu/Debian):**
+```bash
+sudo apt-get update
+sudo apt-get install -y poppler-utils tesseract-ocr libcairo2 libpango-1.0-0
+```
+
+3. **Install Python dependencies:**
 ```bash
 pip install -r requirements.txt
 ```
 
-2. Configure Cloudinary (optional but recommended):
-   Create a `.env` file in the server directory with your Cloudinary credentials:
-   ```bash
-   # Cloudinary Configuration
-   CLOUDINARY_CLOUD_NAME=your_cloud_name_here
-   CLOUDINARY_API_KEY=your_api_key_here
-   CLOUDINARY_API_SECRET=your_api_secret_here
-   ```
-   
-   You can get these values from your Cloudinary dashboard: https://cloudinary.com/console
-   
-   If Cloudinary is not configured, the processing will still work but images won't be uploaded to the cloud.
-
-3. Run the server:
+4. **Run the server:**
 ```bash
 python main.py
 ```
@@ -39,6 +65,39 @@ Or using uvicorn directly:
 ```bash
 uvicorn main:app --reload --host 0.0.0.0 --port 5001
 ```
+
+### Option 2: Using Docker (Recommended)
+
+1. **Build the Docker image:**
+```bash
+docker build -t ai-takeoff-server .
+```
+
+2. **Run the container:**
+```bash
+docker run -p 5001:5001 \
+  -e CONVERTIO_API_KEY=your_key_here \
+  -e API_URL=https://ttfconstruction.com/ai-takeoff-results/create.php \
+  ai-takeoff-server
+```
+
+3. **Test the server:**
+```bash
+curl http://localhost:5001/health
+```
+
+## Deployment to Railway
+
+This application is optimized for deployment on Railway. See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed instructions.
+
+**Quick Deploy:**
+
+1. Push your code to GitHub
+2. Connect your repo to Railway
+3. Set environment variables in Railway dashboard
+4. Deploy automatically
+
+Railway will use the `Dockerfile` and `railway.toml` configuration files.
 
 ## API Endpoints
 
