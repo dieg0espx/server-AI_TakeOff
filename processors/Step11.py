@@ -1,152 +1,276 @@
 #!/usr/bin/env python3
 """
-Step 11: Take Step4.svg and make the black <g> elements (slab bands) overlap the rest of the elements
-Black <g> elements with fill:#000000 in their style attribute are considered slab bands.
-They will be moved to render after all <p> tags to ensure they appear on top of other elements.
+Step 11: Send Processing Results to API
+Reads data.json and sends it to the PHP API endpoint for database storage
 """
 
-import re
+import json
 import os
 import sys
+import requests
 from pathlib import Path
 
 # Add parent directory to path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-def read_svg_file(svg_path):
-    """Read SVG file content"""
+def load_data_json(file_path='data.json'):
+    """Load data from data.json file"""
     try:
-        with open(svg_path, 'r', encoding='utf-8') as f:
-            return f.read()
+        with open(file_path, 'r') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        print(f"❌ Error: {file_path} not found")
+        return None
+    except json.JSONDecodeError as e:
+        print(f"❌ Error: Invalid JSON in {file_path}: {e}")
+        return None
     except Exception as e:
-        print(f"Error reading SVG file: {e}")
+        print(f"❌ Error reading {file_path}: {e}")
         return None
 
-def save_svg_file(svg_content, output_path):
-    """Save SVG content to file"""
+def cleanup_result_files():
+    """Delete all step result files from the files folder"""
     try:
-        with open(output_path, 'w', encoding='utf-8') as f:
-            f.write(svg_content)
-        return True
-    except Exception as e:
-        print(f"Error saving SVG file: {e}")
-        return False
-
-def extract_black_path_elements(svg_content):
-    """
-    Extract all <path> elements with black fill (slab bands) from the SVG content.
-    This approach preserves the XML structure by only moving the path elements themselves.
-    """
-    # Pattern to match <path> elements with black fill
-    black_path_pattern = re.compile(
-        r'<path[^>]*style="[^"]*fill:#000000[^"]*"[^>]*>',
-        re.IGNORECASE | re.MULTILINE | re.DOTALL
-    )
-    
-    black_path_elements = []
-    modified_content = svg_content
-    
-    # Find all <path> elements with black fill
-    for match in black_path_pattern.finditer(svg_content):
-        black_path_elements.append(match.group(0))
-        # Remove the black <path> element from its original position
-        modified_content = modified_content.replace(match.group(0), '', 1)
-    
-    print(f"Found {len(black_path_elements)} <path> elements with black fill (slab bands)")
-    return black_path_elements, modified_content
-
-def add_black_path_elements_on_top(svg_content, black_path_elements):
-    """
-    Add the black <path> elements before the final closing tags to ensure they render on top of other elements.
-    """
-    if not black_path_elements:
-        return svg_content
-    
-    # Find the pattern </g></g></g></svg> at the end
-    final_pattern = '</g></g></g></svg>'
-    pattern_pos = svg_content.rfind(final_pattern)
-    
-    if pattern_pos == -1:
-        print("Warning: Could not find final closing pattern, adding black elements at the end")
-        # Fallback to adding at the end
-        svg_end_pos = svg_content.rfind('</svg>')
-        if svg_end_pos == -1:
-            print("Error: Could not find closing </svg> tag")
-            return svg_content
-        insert_pos = svg_end_pos
-    else:
-        # Insert before the final closing pattern
-        insert_pos = pattern_pos
-    
-    # Create a comment to identify the black path elements section
-    black_path_comment = '\n    <!-- Black <path> elements (slab bands) - rendered on top -->\n'
-    
-    # Add all black <path> elements before the final closing tags
-    black_path_elements_svg = black_path_comment + '\n'.join(f'    {element}' for element in black_path_elements)
-    
-    modified_svg = svg_content[:insert_pos] + '\n' + black_path_elements_svg + '\n' + svg_content[insert_pos:]
-    
-    return modified_svg
-
-def process_step11():
-    """
-    Main function to process Step 11:
-    1. Read Step4.svg
-    2. Extract black strips (slab bands)
-    3. Remove them from their original positions
-    4. Add them at the end to ensure they overlap other elements
-    5. Save as step11.svg
-    """
-    try:
-        # Define file paths
-        base_dir = Path(__file__).parent.parent
-        input_svg_path = base_dir / "files" / "Step4.svg"
-        output_svg_path = base_dir / "files" / "step11.svg"
+        print(f"\n🧹 Cleaning up result files...")
         
-        # Check if input file exists
-        if not input_svg_path.exists():
-            print(f"Error: Input file '{input_svg_path}' not found!")
-            return False
+        # Get the current working directory to determine the correct paths
+        current_dir = os.getcwd()
         
-        print(f"Processing Step 11...")
-        print(f"Input: {input_svg_path}")
-        print(f"Output: {output_svg_path}")
-        
-        # Read SVG content
-        svg_content = read_svg_file(input_svg_path)
-        if not svg_content:
-            return False
-        
-        # Extract black <path> elements and get modified content
-        black_path_elements, content_without_black_paths = extract_black_path_elements(svg_content)
-        
-        if not black_path_elements:
-            print("Warning: No black <path> elements found in the SVG")
-            return False
-        
-        # Add black <path> elements on top
-        final_svg_content = add_black_path_elements_on_top(content_without_black_paths, black_path_elements)
-        
-        # Save the result
-        success = save_svg_file(final_svg_content, output_svg_path)
-        
-        if success:
-            print(f"✅ Step 11 completed successfully!")
-            print(f"   - Processed {len(black_path_elements)} black <path> elements")
-            print(f"   - Output saved to: {output_svg_path}")
-            return True
+        # If we're in the processors directory, use relative paths
+        if current_dir.endswith('processors'):
+            files_dir = "../files"
         else:
-            print(f"❌ Failed to save output file")
-            return False
-            
+            files_dir = "files"
+        
+        # Determine the root directory (parent of files folder)
+        if current_dir.endswith('processors'):
+            root_dir = ".."
+        else:
+            root_dir = "."
+        
+        # List of files to delete
+        files_to_delete = [
+            # Step SVG files
+            f"{files_dir}/Step1.svg",
+            f"{files_dir}/Step2.svg",
+            f"{files_dir}/Step3.svg",
+            f"{files_dir}/Step4.svg",
+            f"{files_dir}/Step5.svg",
+            f"{files_dir}/Step6.svg",
+            f"{files_dir}/Step7.svg",
+            f"{files_dir}/Step8.svg",
+            f"{files_dir}/Step9.svg",
+            f"{files_dir}/step10.svg",
+            # Result PNG files
+            f"{files_dir}/Step4-results.png",
+            f"{files_dir}/Step5-results.png",
+            f"{files_dir}/Step6-results.png",
+            f"{files_dir}/Step7-results.png",
+            f"{files_dir}/Step8-results.png",
+            f"{files_dir}/Step9-results.png",
+            f"{files_dir}/Step10-results.png",
+            # JSON result files
+            f"{root_dir}/greenFrames.json",
+            f"{root_dir}/pinkFrames.json",
+            f"{root_dir}/x-shores.json",
+            f"{root_dir}/square-shores.json",
+            f"{root_dir}/orangeFrames.json",
+        ]
+        
+        deleted_count = 0
+        for file_path in files_to_delete:
+            if os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                    deleted_count += 1
+                    print(f"   ✅ Deleted: {os.path.basename(file_path)}")
+                except Exception as e:
+                    print(f"   ⚠️  Could not delete {os.path.basename(file_path)}: {e}")
+        
+        print(f"\n✅ Cleaned up {deleted_count} result files")
+        return True
+        
     except Exception as e:
-        print(f"❌ An error occurred in Step 11: {str(e)}")
+        print(f"❌ Error during cleanup: {e}")
         return False
+
+def send_to_api(data, api_url):
+    """Send data to PHP API endpoint"""
+    try:
+        print(f"📤 Sending data to API: {api_url}")
+        
+        # Send POST request
+        response = requests.post(
+            api_url,
+            json=data,
+            headers={'Content-Type': 'application/json'},
+            timeout=30
+        )
+        
+        # Check response
+        if response.status_code in [200, 201]:
+            result = response.json()
+            if result.get('success'):
+                print(f"✅ Data successfully sent to API!")
+                print(f"   Database Record ID: {result.get('id')}")
+                
+                # Display tracking URL
+                tracking_url = result.get('tracking_url')
+                if tracking_url:
+                    # Extract base URL from API endpoint
+                    api_base = api_url.replace('/create.php', '')
+                    full_tracking_url = f"{api_base}/read.php?tracking_url={tracking_url}"
+                    
+                    print(f"\n🔗 TRACKING URL:")
+                    print(f"   {full_tracking_url}")
+                    print(f"\n   Share this URL to view the results!")
+                
+                if 'data' in result:
+                    data_info = result['data']
+                    print(f"\n   Project Information:")
+                    print(f"   - Company: {data_info.get('company')}")
+                    print(f"   - Jobsite: {data_info.get('jobsite')}")
+                    print(f"\n   Stored counts:")
+                    print(f"   - Blue X Shapes: {data_info.get('blue_x_shapes')}")
+                    print(f"   - Red Squares: {data_info.get('red_squares')}")
+                    print(f"   - Pink Shapes: {data_info.get('pink_shapes')}")
+                    print(f"   - Green Rectangles: {data_info.get('green_rectangles')}")
+                    print(f"   - Orange Rectangles: {data_info.get('orange_rectangles')}")
+                    print(f"   - Total Detections: {data_info.get('total_detections')}")
+                
+                return True, tracking_url
+            else:
+                print(f"❌ API returned error: {result.get('error')}")
+                if 'errors' in result:
+                    for error in result['errors']:
+                        print(f"   - {error}")
+                return False, None
+        else:
+            print(f"❌ API request failed with status code: {response.status_code}")
+            try:
+                error_data = response.json()
+                print(f"   Error: {error_data.get('error', 'Unknown error')}")
+            except:
+                print(f"   Response: {response.text[:200]}")
+            return False, None
+            
+    except requests.exceptions.Timeout:
+        print("❌ Request timed out after 30 seconds")
+        return False, None
+    except requests.exceptions.ConnectionError:
+        print("❌ Connection error - could not reach the API")
+        print("   Please verify:")
+        print("   - The API URL is correct")
+        print("   - The server is running")
+        print("   - You have internet connectivity")
+        return False, None
+    except Exception as e:
+        print(f"❌ Error sending data to API: {e}")
+        return False, None
 
 def run_step11():
-    """Wrapper function for compatibility"""
-    return process_step11()
+    """
+    Run Step11 processing - send results to API
+    """
+    try:
+        print("🚀 Step 11: Sending Results to API")
+        print("=" * 60)
+        
+        # API endpoint URL - UPDATE THIS with your actual API URL
+        API_URL = os.environ.get('API_URL', 'https://ttfconstruction.com/ai-takeoff-results/create.php')
+        
+        # You can also hardcode it here if preferred:
+        # API_URL = "https://yourdomain.com/create.php"
+        
+        # Get the current working directory to determine the correct paths
+        current_dir = os.getcwd()
+        
+        # If we're in the processors directory, use relative paths
+        if current_dir.endswith('processors'):
+            data_file = "../data.json"
+        else:
+            # If we're in the server directory (when called from pipeline), use direct paths
+            data_file = "data.json"
+        
+        # Check if data.json exists
+        if not os.path.exists(data_file):
+            print(f"❌ Error: {data_file} not found")
+            print("   Please run the processing pipeline first to generate data.json")
+            return False
+        
+        # Load data.json
+        print(f"📄 Loading {data_file}...")
+        data = load_data_json(data_file)
+        if not data:
+            return False
+        
+        print("✅ data.json loaded successfully")
+        
+        # Display data summary
+        if 'step_results' in data:
+            step_results = data['step_results']
+            print("\n📊 Data to be sent:")
+            print(f"   - Blue X Shapes: {step_results.get('step5_blue_X_shapes', 0)}")
+            print(f"   - Red Squares: {step_results.get('step6_red_squares', 0)}")
+            print(f"   - Pink Shapes: {step_results.get('step7_pink_shapes', 0)}")
+            print(f"   - Green Rectangles: {step_results.get('step8_green_rectangles', 0)}")
+            print(f"   - Orange Rectangles: {step_results.get('step9_orange_rectangles', 0)}")
+        
+        if 'cloudinary_urls' in data:
+            cloudinary_urls = data['cloudinary_urls']
+            print(f"\n☁️  Cloudinary URLs: {len(cloudinary_urls)} images")
+        
+        # Send to API
+        print(f"\n📡 API Endpoint: {API_URL}")
+        success, tracking_url = send_to_api(data, API_URL)
+        
+        if success:
+            print("\n🎉 Results successfully sent to API and stored in database!")
+            
+            # Save tracking URL to data.json for later retrieval
+            if tracking_url:
+                try:
+                    data['tracking_url'] = tracking_url
+                    with open(data_file, 'w') as f:
+                        json.dump(data, f, indent=4)
+                    print(f"✅ Tracking URL saved to {data_file}")
+                except Exception as e:
+                    print(f"⚠️  Could not save tracking URL to data.json: {e}")
+            
+            # Clean up result files after successful storage
+            cleanup_result_files()
+            
+            # Display final tracking URL prominently
+            if tracking_url:
+                api_base = API_URL.replace('/create.php', '')
+                full_tracking_url = f"{api_base}/read.php?tracking_url={tracking_url}"
+                
+                print("\n" + "=" * 70)
+                print("🔗 RESULTS URL (Share this link to view the results)")
+                print("=" * 70)
+                print(f"\n{full_tracking_url}\n")
+                print("=" * 70)
+            
+            return True
+        else:
+            print("\n⚠️  Failed to send results to API")
+            print("   The pipeline completed successfully, but results were not stored in the database")
+            print("   Result files were NOT deleted (to allow retry)")
+            return False
+        
+    except Exception as e:
+        print(f"❌ Error in Step 11: {e}")
+        return False
 
-# Main execution
+def main():
+    """Main function for standalone execution"""
+    return run_step11()
+
 if __name__ == "__main__":
-    process_step11()
+    # Change to the server directory to ensure proper file paths
+    server_dir = Path(__file__).parent.parent
+    os.chdir(server_dir)
+    
+    success = main()
+    sys.exit(0 if success else 1)
+

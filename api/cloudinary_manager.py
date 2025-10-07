@@ -86,13 +86,15 @@ class CloudinaryManager:
         uploaded_urls = {}
         files_dir = Path("files")
         
-        # Only upload PNG result images
+        # Upload PNG result images
         png_files = {
             "step4_results": "Step4-results.png",
             "step5_results": "Step5-results.png", 
             "step6_results": "Step6-results.png",
             "step7_results": "Step7-results.png",
-            "step8_results": "Step8-results.png"
+            "step8_results": "Step8-results.png",
+            "step9_results": "Step9-results.png",
+            "step10_results": "Step10-results.png"
         }
         
         # Upload PNG result files

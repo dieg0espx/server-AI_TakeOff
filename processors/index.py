@@ -99,16 +99,17 @@ def run_step(step_name, capture_output=False):
 def extract_count_from_output(step_name, output):
     """
     Extract count from step output based on step name
-    Only Steps 5-8 have count patterns to extract
+    Only Steps 5-9 have count patterns to extract
     """
     count_patterns = {
         "Step5": "Final count: ",
         "Step6": "Total squares detected: ",
         "Step7": "Final count: ",
-        "Step8": "Total rectangles detected: "
+        "Step8": "Total rectangles detected: ",
+        "Step9": "Final count: "
     }
     
-    # Only extract counts for Steps 5-8
+    # Only extract counts for Steps 5-9
     if step_name not in count_patterns:
         return None
     
@@ -225,6 +226,8 @@ def main():
         "Step6",  # Detect red squares
         "Step7",  # Detect pink shapes
         "Step8",  # Detect green rectangles
+        "Step9",  # Detect orange rectangles
+        "Step10", # Draw all containers onto Step2.svg
     ]
     
     successful_steps = 0
@@ -233,19 +236,20 @@ def main():
     
     # Run each step in sequence
     for step in steps:
-        # Capture output for all steps to show progress and extract counts from Steps 5-8
+        # Capture output for all steps to show progress and extract counts from Steps 5-9
         capture_output = True
         success, count = run_step(step, capture_output)
         
         if success:
             successful_steps += 1
-            # Store count if captured (only for Steps 5-8)
+            # Store count if captured (only for Steps 5-9)
             if count is not None:
                 step_descriptions = {
                     "Step5": "blue_X_shapes",
                     "Step6": "red_squares", 
                     "Step7": "pink_shapes",
-                    "Step8": "green_rectangles"
+                    "Step8": "green_rectangles",
+                    "Step9": "orange_rectangles"
                 }
                 step_number = step.lower().replace("step", "step")
                 step_counts[f"{step_number}_{step_descriptions[step]}"] = count
@@ -287,6 +291,23 @@ def main():
                         print(f"     * {step}: {url}")
             except Exception as e:
                 print(f"⚠️  Could not read data.json: {e}")
+        
+        # Run Step11 to send results to API (after data.json is created)
+        print(f"\n{'='*60}")
+        step11_success, _ = run_step("Step11", capture_output=False)
+        if step11_success:
+            successful_steps += 1
+            print(f"\n{'='*60}")
+            print("🎉 COMPLETE PIPELINE SUCCESS!")
+            print(f"{'='*60}")
+            print(f"✅ All {successful_steps} steps completed (10 processing + 1 API submission)")
+            print(f"{'='*60}")
+        else:
+            print(f"\n{'='*60}")
+            print("⚠️  Step11 (API submission) failed")
+            print("   Local processing completed successfully")
+            print("   Results are stored locally in data.json")
+            print(f"{'='*60}")
     else:
         print("⚠️  Pipeline completed with some failures")
         # Don't exit the server, just return False to indicate failure

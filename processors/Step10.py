@@ -8,6 +8,7 @@ import json
 import os
 import sys
 from pathlib import Path
+import cairosvg
 
 # Add parent directory to path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
@@ -250,6 +251,15 @@ def save_svg_file(svg_content, output_path):
     except Exception as e:
         return False
 
+def convert_svg_to_png(svg_path, png_path):
+    """Convert SVG to PNG"""
+    try:
+        cairosvg.svg2png(url=str(svg_path), write_to=str(png_path))
+        return True
+    except Exception as e:
+        print(f"⚠️  Error converting SVG to PNG: {e}")
+        return False
+
 def run_step10():
     """Main function to process Step 10"""
     # Define file paths
@@ -308,10 +318,16 @@ def run_step10():
     if not modified_svg:
         return False
     
-    # Save silently
+    # Save SVG
     success = save_svg_file(modified_svg, output_path)
+    if not success:
+        return False
     
-    return success
+    # Convert to PNG
+    png_output_path = base_dir / "files" / "Step10-results.png"
+    png_success = convert_svg_to_png(output_path, png_output_path)
+    
+    return success and png_success
 
 def main():
     """Main function to process Step 10"""
