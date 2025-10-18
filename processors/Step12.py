@@ -53,13 +53,11 @@ def validate_and_prepare_data(data):
     if 'upload_id' not in data:
         data['upload_id'] = 'unknown'
     
-    # Add text field from rewritten_text (for database storage)
+    # Add text field from rewritten_text ONLY (for database storage)
     if 'rewritten_text' in data and data['rewritten_text']:
         data['text'] = data['rewritten_text']
-    elif 'extracted_text' in data and data['extracted_text']:
-        # Fallback to extracted_text if rewritten_text is not available
-        data['text'] = data['extracted_text']
     else:
+        # Only use rewritten text, not the raw extracted text
         data['text'] = ''
     
     return data
