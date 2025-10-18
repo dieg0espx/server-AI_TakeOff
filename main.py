@@ -249,31 +249,33 @@ def run_pipeline_with_logging(upload_id: str):
             step_counts = {}
             
             # Read counts from individual JSON files created by each step
+            # Each step creates a JSON file with a specific structure
             json_files = {
-                'x-shores.json': 'step5_blue_X_shapes',
-                'square-shores.json': 'step6_red_squares',
-                'pinkFrames.json': 'step7_pink_shapes',
-                'greenFrames.json': 'step8_green_rectangles',
-                'orangeFrames.json': 'step9_orange_rectangles'
+                'x-shores.json': ('step5_blue_X_shapes', 'total_x_shapes'),
+                'square-shores.json': ('step6_red_squares', 'total_red_squares'),
+                'pinkFrames.json': ('step7_pink_shapes', 'total_pink_shapes'),
+                'greenFrames.json': ('step8_green_rectangles', 'total_rectangles'),
+                'orangeFrames.json': ('step9_orange_rectangles', 'total_rectangles')
             }
             
-            for json_file, key in json_files.items():
+            for json_file, (result_key, json_field) in json_files.items():
                 if os.path.exists(json_file):
                     try:
                         with open(json_file, 'r') as f:
                             data = json.load(f)
-                            if isinstance(data, list):
-                                step_counts[key] = len(data)
-                                print(f"   ✅ {key}: {len(data)}")
-                            elif isinstance(data, dict) and 'count' in data:
-                                step_counts[key] = data['count']
-                                print(f"   ✅ {key}: {data['count']}")
+                            if isinstance(data, dict) and json_field in data:
+                                count = data[json_field]
+                                step_counts[result_key] = count
+                                print(f"   ✅ {result_key}: {count}")
+                            else:
+                                print(f"   ⚠️  {json_file} missing field '{json_field}'")
+                                step_counts[result_key] = 0
                     except Exception as e:
                         print(f"   ⚠️  Could not read {json_file}: {e}")
-                        step_counts[key] = 0
+                        step_counts[result_key] = 0
                 else:
                     print(f"   ⚠️  {json_file} not found")
-                    step_counts[key] = 0
+                    step_counts[result_key] = 0
             
             # Update data.json with the collected counts
             data_file = "data.json"
