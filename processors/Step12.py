@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-Step 12: Extract Text from Original PDF and Rewrite Professionally
-Extracts text from the original.pdf using OCR and uses OpenAI to rewrite it professionally
+Step 12: Send Results to API and Cleanup
+Sends processing results to the database and cleans up temporary files
 """
 
 import os
 import sys
 import json
 from pathlib import Path
-from dotenv import load_dotenv
 import requests
+from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
@@ -17,104 +17,145 @@ load_dotenv()
 # Add parent directory to path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from api.pdf_text_extractor import extract_text_from_pdf
-
-def rewrite_text_with_openai(extracted_text: str) -> str:
-    """
-    Use OpenAI API to rewrite the extracted text professionally for scaffolding drawings
-    
-    Args:
-        extracted_text: Raw OCR text from the PDF
-        
-    Returns:
-        Professionally rewritten text or original text if API call fails
-    """
+def load_data_json(file_path='data.json'):
+    """Load data from data.json file"""
     try:
-        from openai import OpenAI
+        with open(file_path, 'r') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        print(f"❌ Error: {file_path} not found")
+        return None
+    except json.JSONDecodeError as e:
+        print(f"❌ Error: Invalid JSON in {file_path}: {e}")
+        return None
+    except Exception as e:
+        print(f"❌ Error reading {file_path}: {e}")
+        return None
+
+def validate_and_prepare_data(data):
+    """Validate and prepare data with required fields"""
+    # Ensure all required fields are present
+    if 'company' not in data or not data['company']:
+        data['company'] = 'Unknown Company'
+    
+    if 'jobsite' not in data or not data['jobsite']:
+        data['jobsite'] = 'Unknown Jobsite'
+    
+    # Ensure step_results exists
+    if 'step_results' not in data:
+        data['step_results'] = {}
+    
+    # Ensure cloudinary_urls exists
+    if 'cloudinary_urls' not in data:
+        data['cloudinary_urls'] = {}
+    
+    # Ensure upload_id exists
+    if 'upload_id' not in data:
+        data['upload_id'] = 'unknown'
+    
+    # Add text field from rewritten_text (for database storage)
+    if 'rewritten_text' in data and data['rewritten_text']:
+        data['text'] = data['rewritten_text']
+    elif 'extracted_text' in data and data['extracted_text']:
+        # Fallback to extracted_text if rewritten_text is not available
+        data['text'] = data['extracted_text']
+    else:
+        data['text'] = ''
+    
+    return data
+
+def send_to_api(data, api_url):
+    """Send data to PHP API endpoint"""
+    try:
+        # Validate and prepare data
+        data = validate_and_prepare_data(data)
         
-        # Get API key from environment
-        api_key = os.getenv('OPENAI_API_KEY')
-        if not api_key:
-            print("⚠️  OPENAI_API_KEY not found in environment variables")
-            return extracted_text
+        print(f"📤 Sending data to API: {api_url}")
+        print(f"📋 Data summary:")
+        print(f"   - Company: {data.get('company')}")
+        print(f"   - Jobsite: {data.get('jobsite')}")
+        print(f"   - Upload ID: {data.get('upload_id')}")
+        print(f"   - Step results: {len(data.get('step_results', {}))} items")
+        print(f"   - Cloudinary URLs: {len(data.get('cloudinary_urls', {}))} items")
+        print(f"   - Text (for DB): {len(data.get('text', ''))} characters")
         
-        print("\n🤖 Rewriting text with OpenAI API...")
-        
-        # Initialize OpenAI client
-        client = OpenAI(api_key=api_key)
-        
-        # Create the prompt for professional rewriting
-        prompt = f"""You are a professional technical writer specializing in construction and scaffolding documentation.
-
-The following text was extracted using OCR from a scaffolding construction drawing. It contains technical specifications, measurements, and construction notes.
-
-Please rewrite this text in a clear, professional, and well-organized manner suitable for scaffolding construction documentation. Organize the information logically, correct any OCR errors, standardize measurements and terminology, and present it in a professional format.
-
-Original OCR Text:
-{extracted_text}
-
-Please provide a professionally written version:"""
-
-        # Call OpenAI API
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "You are a professional technical writer specializing in construction and scaffolding documentation. You rewrite OCR-extracted text from scaffolding drawings into clear, professional, and well-organized documentation."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.3,
-            max_tokens=2000
+        # Send POST request
+        response = requests.post(
+            api_url,
+            json=data,
+            headers={'Content-Type': 'application/json'},
+            timeout=30
         )
         
-        # Extract the rewritten text
-        rewritten_text = response.choices[0].message.content.strip()
-        
-        print("✅ Text successfully rewritten by OpenAI")
-        return rewritten_text
-        
-    except ImportError:
-        print("⚠️  OpenAI package not installed. Run: pip install openai")
-        return extracted_text
-    except Exception as e:
-        print(f"⚠️  Error calling OpenAI API: {e}")
-        return extracted_text
-
-def store_text_in_data_json(extracted_text: str, rewritten_text: str, pdf_path: str):
-    """
-    Store both the extracted text and rewritten text in data.json file
-    
-    Args:
-        extracted_text: Raw OCR text from the PDF
-        rewritten_text: Professionally rewritten text from OpenAI
-        pdf_path: Path to the original PDF file
-    """
-    try:
-        # Read existing data.json if it exists
-        if os.path.exists('data.json'):
-            with open('data.json', 'r') as file:
-                try:
-                    data = json.load(file)
-                except json.JSONDecodeError:
-                    data = {}
+        # Check response
+        if response.status_code in [200, 201]:
+            result = response.json()
+            if result.get('success'):
+                print(f"✅ Data successfully sent to API!")
+                print(f"   Database Record ID: {result.get('id')}")
+                
+                # Display tracking URL
+                tracking_url = result.get('tracking_url')
+                if tracking_url:
+                    # Extract base URL from API endpoint
+                    api_base = api_url.replace('/create.php', '')
+                    full_tracking_url = f"{api_base}/read.php?tracking_url={tracking_url}"
+                    
+                    print(f"\n🔗 TRACKING URL:")
+                    print(f"   {full_tracking_url}")
+                    print(f"\n   Share this URL to view the results!")
+                
+                if 'data' in result:
+                    data_info = result['data']
+                    print(f"\n   Project Information:")
+                    print(f"   - Company: {data_info.get('company')}")
+                    print(f"   - Jobsite: {data_info.get('jobsite')}")
+                    print(f"\n   Stored counts:")
+                    print(f"   - Blue X Shapes: {data_info.get('blue_x_shapes')}")
+                    print(f"   - Red Squares: {data_info.get('red_squares')}")
+                    print(f"   - Pink Shapes: {data_info.get('pink_shapes')}")
+                    print(f"   - Green Rectangles: {data_info.get('green_rectangles')}")
+                    print(f"   - Orange Rectangles: {data_info.get('orange_rectangles')}")
+                    print(f"   - Total Detections: {data_info.get('total_detections')}")
+                
+                return True, tracking_url
+            else:
+                print(f"❌ API returned error: {result.get('error')}")
+                if 'errors' in result:
+                    for error in result['errors']:
+                        print(f"   - {error}")
+                return False, None
         else:
-            data = {}
-        
-        # Update the data with both texts
-        data['extracted_text'] = extracted_text
-        data['rewritten_text'] = rewritten_text
-        
-        # Write updated data back to data.json
-        with open('data.json', 'w') as file:
-            json.dump(data, file, indent=4)
-        
-        print(f"✅ Extracted and rewritten text successfully stored in data.json")
-        print(f"   - Original text length: {len(extracted_text)} characters")
-        print(f"   - Rewritten text length: {len(rewritten_text)} characters")
-        print(f"   - PDF file: {pdf_path}")
-        
+            print(f"❌ API request failed with status code: {response.status_code}")
+            try:
+                error_data = response.json()
+                print(f"   Error: {error_data.get('error', 'Unknown error')}")
+                if 'errors' in error_data:
+                    print("   Validation errors:")
+                    if isinstance(error_data['errors'], list):
+                        for error in error_data['errors']:
+                            print(f"   - {error}")
+                    else:
+                        print(f"   - {error_data['errors']}")
+            except json.JSONDecodeError:
+                print(f"   Response (not JSON): {response.text[:500]}")
+            except Exception as e:
+                print(f"   Could not parse error response: {e}")
+            return False, None
+            
+    except requests.exceptions.Timeout:
+        print("❌ Request timed out after 30 seconds")
+        return False, None
+    except requests.exceptions.ConnectionError:
+        print("❌ Connection error - could not reach the API")
+        print("   Please verify:")
+        print("   - The API URL is correct")
+        print("   - The server is running")
+        print("   - You have internet connectivity")
+        return False, None
     except Exception as e:
-        print(f"❌ Error storing text in data.json: {str(e)}")
-
+        print(f"❌ Error sending data to API: {e}")
+        return False, None
 
 def cleanup_result_files():
     """Delete all step result files from the files folder"""
@@ -182,213 +223,95 @@ def cleanup_result_files():
         print(f"❌ Error during cleanup: {e}")
         return False
 
-def validate_and_prepare_data(data):
-    """Validate and prepare data with required fields"""
-    # Ensure all required fields are present
-    if 'company' not in data or not data['company']:
-        data['company'] = 'Unknown Company'
-    
-    if 'jobsite' not in data or not data['jobsite']:
-        data['jobsite'] = 'Unknown Jobsite'
-    
-    # Ensure step_results exists
-    if 'step_results' not in data:
-        data['step_results'] = {}
-    
-    # Ensure cloudinary_urls exists
-    if 'cloudinary_urls' not in data:
-        data['cloudinary_urls'] = {}
-    
-    # Ensure upload_id exists
-    if 'upload_id' not in data:
-        data['upload_id'] = 'unknown'
-    
-    # Add text field from rewritten_text (for database storage)
-    if 'rewritten_text' in data and data['rewritten_text']:
-        data['text'] = data['rewritten_text']
-    elif 'extracted_text' in data and data['extracted_text']:
-        # Fallback to extracted_text if rewritten_text is not available
-        data['text'] = data['extracted_text']
-    else:
-        data['text'] = ''
-    
-    return data
-
-def send_to_api(data, api_url):
-    """Send data to PHP API endpoint"""
-    try:
-        # Validate and prepare data
-        data = validate_and_prepare_data(data)
-        
-        print(f"\n📤 Sending data to API: {api_url}")
-        print(f"📋 Data summary:")
-        print(f"   - Company: {data.get('company')}")
-        print(f"   - Jobsite: {data.get('jobsite')}")
-        print(f"   - Upload ID: {data.get('upload_id')}")
-        print(f"   - Step results: {len(data.get('step_results', {}))} items")
-        print(f"   - Cloudinary URLs: {len(data.get('cloudinary_urls', {}))} items")
-        print(f"   - Text (for DB): {len(data.get('text', ''))} characters")
-        
-        # Send POST request
-        response = requests.post(
-            api_url,
-            json=data,
-            headers={'Content-Type': 'application/json'},
-            timeout=30
-        )
-        
-        # Check response
-        if response.status_code in [200, 201]:
-            result = response.json()
-            if result.get('success'):
-                print(f"✅ Data successfully sent to API!")
-                print(f"   Database Record ID: {result.get('id')}")
-                
-                # Display tracking URL
-                tracking_url = result.get('tracking_url')
-                if tracking_url:
-                    # Extract base URL from API endpoint
-                    api_base = api_url.replace('/create.php', '')
-                    full_tracking_url = f"{api_base}/read.php?tracking_url={tracking_url}"
-                    
-                    print(f"\n🔗 TRACKING URL:")
-                    print(f"   {full_tracking_url}")
-                    print(f"\n   Share this URL to view the results!")
-                
-                return True, tracking_url
-            else:
-                print(f"❌ API returned error: {result.get('error')}")
-                if 'errors' in result:
-                    for error in result['errors']:
-                        print(f"   - {error}")
-                return False, None
-        else:
-            print(f"❌ API request failed with status code: {response.status_code}")
-            try:
-                error_data = response.json()
-                print(f"   Error: {error_data.get('error', 'Unknown error')}")
-                if 'errors' in error_data:
-                    print("   Validation errors:")
-                    if isinstance(error_data['errors'], list):
-                        for error in error_data['errors']:
-                            print(f"   - {error}")
-                    else:
-                        print(f"   - {error_data['errors']}")
-            except json.JSONDecodeError:
-                print(f"   Response (not JSON): {response.text[:500]}")
-            except Exception as e:
-                print(f"   Could not parse error response: {e}")
-            return False, None
-            
-    except requests.exceptions.Timeout:
-        print("❌ Request timed out after 30 seconds")
-        return False, None
-    except requests.exceptions.ConnectionError:
-        print("❌ Connection error - could not reach the API")
-        return False, None
-    except Exception as e:
-        print(f"❌ Error sending data to API: {e}")
-        return False, None
-
 def run_step12():
     """
-    Run Step12 processing - extract text from PDF and rewrite professionally
+    Run Step12 processing - send results to API and cleanup
     """
     try:
-        print("🚀 Step 12: Extracting and Rewriting Text from PDF")
+        print("🚀 Step 12: Sending Results to API and Cleanup")
         print("=" * 70)
+        
+        # API endpoint URL - get from environment or use default
+        API_URL = os.environ.get('API_URL', 'https://ttfconstruction.com/ai-takeoff-results/create.php')
         
         # Get the current working directory to determine the correct paths
         current_dir = os.getcwd()
         
         # If we're in the processors directory, use relative paths
         if current_dir.endswith('processors'):
-            pdf_path = "../files/original.pdf"
+            data_file = "../data.json"
         else:
             # If we're in the server directory (when called from pipeline), use direct paths
-            pdf_path = "files/original.pdf"
+            data_file = "data.json"
         
-        # Check if PDF exists
-        if not os.path.exists(pdf_path):
-            print(f"❌ Error: {pdf_path} not found")
-            print("   Please ensure the PDF has been downloaded")
+        # Check if data.json exists
+        if not os.path.exists(data_file):
+            print(f"❌ Error: {data_file} not found")
+            print("   Please run the processing pipeline first to generate data.json")
             return False
         
-        print(f"📄 Processing PDF: {pdf_path}")
+        # Load data.json
+        print(f"📄 Loading {data_file}...")
+        data = load_data_json(data_file)
+        if not data:
+            return False
         
-        # Extract text from the PDF
-        extracted_text = extract_text_from_pdf(pdf_path)
+        print("✅ data.json loaded successfully")
         
-        if extracted_text:
-            print("\n" + "=" * 70)
-            print("📝 ORIGINAL EXTRACTED TEXT (OCR)")
-            print("=" * 70)
-            print(extracted_text)
-            print("=" * 70)
+        # Display data summary
+        if 'step_results' in data:
+            step_results = data['step_results']
+            print("\n📊 Data to be sent:")
+            print(f"   - Blue X Shapes: {step_results.get('step5_blue_X_shapes', 0)}")
+            print(f"   - Red Squares: {step_results.get('step6_red_squares', 0)}")
+            print(f"   - Pink Shapes: {step_results.get('step7_pink_shapes', 0)}")
+            print(f"   - Green Rectangles: {step_results.get('step8_green_rectangles', 0)}")
+            print(f"   - Orange Rectangles: {step_results.get('step9_orange_rectangles', 0)}")
+        
+        if 'cloudinary_urls' in data:
+            cloudinary_urls = data['cloudinary_urls']
+            print(f"\n☁️  Cloudinary URLs: {len(cloudinary_urls)} images")
+        
+        if 'rewritten_text' in data:
+            print(f"\n📝 Rewritten text: {len(data['rewritten_text'])} characters")
+        
+        # Send to API
+        print(f"\n📡 API Endpoint: {API_URL}")
+        success, tracking_url = send_to_api(data, API_URL)
+        
+        if success:
+            print("\n🎉 Results successfully sent to API and stored in database!")
             
-            # Rewrite text with OpenAI
-            rewritten_text = rewrite_text_with_openai(extracted_text)
+            # Save tracking URL to data.json for later retrieval
+            if tracking_url:
+                try:
+                    data['tracking_url'] = tracking_url
+                    with open(data_file, 'w') as f:
+                        json.dump(data, f, indent=4)
+                    print(f"✅ Tracking URL saved to {data_file}")
+                except Exception as e:
+                    print(f"⚠️  Could not save tracking URL to data.json: {e}")
             
-            print("\n" + "=" * 70)
-            print("✨ PROFESSIONALLY REWRITTEN TEXT (OpenAI)")
-            print("=" * 70)
-            print(rewritten_text)
-            print("=" * 70)
-            
-            # Store both texts in data.json
-            print("\n💾 Storing extracted and rewritten text in data.json...")
-            store_text_in_data_json(extracted_text, rewritten_text, pdf_path)
-            
-            # Send data to API
-            try:
-                # Get API URL from environment or use default
-                API_URL = os.environ.get('API_URL', 'https://ttfconstruction.com/ai-takeoff-results/create.php')
-                
-                # Load data.json to send to API
-                data_file = "data.json" if not current_dir.endswith('processors') else "../data.json"
-                if os.path.exists(data_file):
-                    with open(data_file, 'r') as f:
-                        data = json.load(f)
-                    
-                    # Send to API
-                    success, tracking_url = send_to_api(data, API_URL)
-                    
-                    if success and tracking_url:
-                        # Save tracking URL to data.json
-                        data['tracking_url'] = tracking_url
-                        with open(data_file, 'w') as f:
-                            json.dump(data, f, indent=4)
-                        
-                        # Display final tracking URL prominently
-                        api_base = API_URL.replace('/create.php', '')
-                        full_tracking_url = f"{api_base}/read.php?tracking_url={tracking_url}"
-                        
-                        print("\n" + "=" * 70)
-                        print("🔗 RESULTS URL (Share this link to view the results)")
-                        print("=" * 70)
-                        print(f"\n{full_tracking_url}\n")
-                        print("=" * 70)
-                    else:
-                        print("\n⚠️  Failed to send results to API")
-                        print("   Data is still available in data.json")
-                else:
-                    print("\n⚠️  data.json not found - cannot send to API")
-                    
-            except Exception as e:
-                print(f"\n⚠️  Error sending to API: {e}")
-            
-            # Clean up result files after successful processing and API send
+            # Clean up result files after successful storage
             cleanup_result_files()
             
-            print(f"\n✅ Step12 completed successfully")
-            print(f"   - Original text: {len(extracted_text)} characters")
-            print(f"   - Rewritten text: {len(rewritten_text)} characters")
+            # Display final tracking URL prominently
+            if tracking_url:
+                api_base = API_URL.replace('/create.php', '')
+                full_tracking_url = f"{api_base}/read.php?tracking_url={tracking_url}"
+                
+                print("\n" + "=" * 70)
+                print("🔗 RESULTS URL (Share this link to view the results)")
+                print("=" * 70)
+                print(f"\n{full_tracking_url}\n")
+                print("=" * 70)
+            
             return True
         else:
-            print("\n⚠️  No text was extracted from the PDF")
-            print("   This might be a scanned document with poor quality or no text content")
-            # Still return True as this is not a critical failure
-            return True
+            print("\n⚠️  Failed to send results to API")
+            print("   The pipeline completed successfully, but results were not stored in the database")
+            print("   Result files were NOT deleted (to allow retry)")
+            return False
         
     except Exception as e:
         print(f"❌ Error in Step 12: {e}")
@@ -407,4 +330,3 @@ if __name__ == "__main__":
     
     success = main()
     sys.exit(0 if success else 1)
-

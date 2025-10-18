@@ -165,7 +165,8 @@ def run_pipeline_with_logging(upload_id: str):
         "Step8",  # Detect green rectangles
         "Step9",  # Detect orange rectangles
         "Step10", # Draw all containers onto Step2.svg
-        "Step12", # Extract text from PDF
+        "Step11", # Extract text from PDF and rewrite with OpenAI
+        "Step12", # Send results to API and cleanup
     ]
     
     successful_steps = 0
@@ -320,9 +321,6 @@ def run_pipeline_with_logging(upload_id: str):
             
         except Exception as e:
             print(f"⚠️  Error updating data.json: {e}")
-        
-        # Note: Step11 (API sending) is now integrated into Step12
-        # Step12 will handle text extraction, rewriting, and sending to API
         
         return True, None, None
     else:
