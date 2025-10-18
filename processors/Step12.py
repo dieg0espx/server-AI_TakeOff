@@ -1,25 +1,127 @@
 #!/usr/bin/env python3
 """
-Step 12: Extract Text from Original PDF
-Extracts text from the original.pdf using OCR and prints it to console
+Step 12: Extract Text from Original PDF and Rewrite Professionally
+Extracts text from the original.pdf using OCR and uses OpenAI to rewrite it professionally
 """
 
 import os
 import sys
+import json
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Add parent directory to path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from api.pdf_text_extractor import extract_text_from_pdf, store_text_in_data_json
+from api.pdf_text_extractor import extract_text_from_pdf
+
+def rewrite_text_with_openai(extracted_text: str) -> str:
+    """
+    Use OpenAI API to rewrite the extracted text professionally for scaffolding drawings
+    
+    Args:
+        extracted_text: Raw OCR text from the PDF
+        
+    Returns:
+        Professionally rewritten text or original text if API call fails
+    """
+    try:
+        from openai import OpenAI
+        
+        # Get API key from environment
+        api_key = os.getenv('OPENAI_API_KEY')
+        if not api_key:
+            print("⚠️  OPENAI_API_KEY not found in environment variables")
+            return extracted_text
+        
+        print("\n🤖 Rewriting text with OpenAI API...")
+        
+        # Initialize OpenAI client
+        client = OpenAI(api_key=api_key)
+        
+        # Create the prompt for professional rewriting
+        prompt = f"""You are a professional technical writer specializing in construction and scaffolding documentation.
+
+The following text was extracted using OCR from a scaffolding construction drawing. It contains technical specifications, measurements, and construction notes.
+
+Please rewrite this text in a clear, professional, and well-organized manner suitable for scaffolding construction documentation. Organize the information logically, correct any OCR errors, standardize measurements and terminology, and present it in a professional format.
+
+Original OCR Text:
+{extracted_text}
+
+Please provide a professionally written version:"""
+
+        # Call OpenAI API
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a professional technical writer specializing in construction and scaffolding documentation. You rewrite OCR-extracted text from scaffolding drawings into clear, professional, and well-organized documentation."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+            max_tokens=2000
+        )
+        
+        # Extract the rewritten text
+        rewritten_text = response.choices[0].message.content.strip()
+        
+        print("✅ Text successfully rewritten by OpenAI")
+        return rewritten_text
+        
+    except ImportError:
+        print("⚠️  OpenAI package not installed. Run: pip install openai")
+        return extracted_text
+    except Exception as e:
+        print(f"⚠️  Error calling OpenAI API: {e}")
+        return extracted_text
+
+def store_text_in_data_json(extracted_text: str, rewritten_text: str, pdf_path: str):
+    """
+    Store both the extracted text and rewritten text in data.json file
+    
+    Args:
+        extracted_text: Raw OCR text from the PDF
+        rewritten_text: Professionally rewritten text from OpenAI
+        pdf_path: Path to the original PDF file
+    """
+    try:
+        # Read existing data.json if it exists
+        if os.path.exists('data.json'):
+            with open('data.json', 'r') as file:
+                try:
+                    data = json.load(file)
+                except json.JSONDecodeError:
+                    data = {}
+        else:
+            data = {}
+        
+        # Update the data with both texts
+        data['extracted_text'] = extracted_text
+        data['rewritten_text'] = rewritten_text
+        
+        # Write updated data back to data.json
+        with open('data.json', 'w') as file:
+            json.dump(data, file, indent=4)
+        
+        print(f"✅ Extracted and rewritten text successfully stored in data.json")
+        print(f"   - Original text length: {len(extracted_text)} characters")
+        print(f"   - Rewritten text length: {len(rewritten_text)} characters")
+        print(f"   - PDF file: {pdf_path}")
+        
+    except Exception as e:
+        print(f"❌ Error storing text in data.json: {str(e)}")
+
 
 def run_step12():
     """
-    Run Step12 processing - extract text from PDF
+    Run Step12 processing - extract text from PDF and rewrite professionally
     """
     try:
-        print("🚀 Step 12: Extracting Text from PDF")
-        print("=" * 60)
+        print("🚀 Step 12: Extracting and Rewriting Text from PDF")
+        print("=" * 70)
         
         # Get the current working directory to determine the correct paths
         current_dir = os.getcwd()
@@ -43,18 +145,28 @@ def run_step12():
         extracted_text = extract_text_from_pdf(pdf_path)
         
         if extracted_text:
-            print("\n" + "=" * 60)
-            print("📝 EXTRACTED TEXT FROM PDF")
-            print("=" * 60)
+            print("\n" + "=" * 70)
+            print("📝 ORIGINAL EXTRACTED TEXT (OCR)")
+            print("=" * 70)
             print(extracted_text)
-            print("=" * 60)
+            print("=" * 70)
             
-            # Store the extracted text in data.json
-            print("\n💾 Storing extracted text in data.json...")
-            store_text_in_data_json(extracted_text, pdf_path)
+            # Rewrite text with OpenAI
+            rewritten_text = rewrite_text_with_openai(extracted_text)
+            
+            print("\n" + "=" * 70)
+            print("✨ PROFESSIONALLY REWRITTEN TEXT (OpenAI)")
+            print("=" * 70)
+            print(rewritten_text)
+            print("=" * 70)
+            
+            # Store both texts in data.json
+            print("\n💾 Storing extracted and rewritten text in data.json...")
+            store_text_in_data_json(extracted_text, rewritten_text, pdf_path)
             
             print(f"\n✅ Step12 completed successfully")
-            print(f"   - Characters extracted: {len(extracted_text)}")
+            print(f"   - Original text: {len(extracted_text)} characters")
+            print(f"   - Rewritten text: {len(rewritten_text)} characters")
             return True
         else:
             print("\n⚠️  No text was extracted from the PDF")
