@@ -165,6 +165,7 @@ def run_pipeline_with_logging(upload_id: str):
         "Step8",  # Detect green rectangles
         "Step9",  # Detect orange rectangles
         "Step10", # Draw all containers onto Step2.svg
+        "Step12", # Extract text from PDF
     ]
     
     successful_steps = 0
