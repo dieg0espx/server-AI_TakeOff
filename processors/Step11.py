@@ -115,6 +115,15 @@ def validate_and_prepare_data(data):
     if 'upload_id' not in data:
         data['upload_id'] = 'unknown'
     
+    # Add text field from rewritten_text (for database storage)
+    if 'rewritten_text' in data and data['rewritten_text']:
+        data['text'] = data['rewritten_text']
+    elif 'extracted_text' in data and data['extracted_text']:
+        # Fallback to extracted_text if rewritten_text is not available
+        data['text'] = data['extracted_text']
+    else:
+        data['text'] = ''
+    
     return data
 
 def send_to_api(data, api_url):
@@ -130,6 +139,7 @@ def send_to_api(data, api_url):
         print(f"   - Upload ID: {data.get('upload_id')}")
         print(f"   - Step results: {len(data.get('step_results', {}))} items")
         print(f"   - Cloudinary URLs: {len(data.get('cloudinary_urls', {}))} items")
+        print(f"   - Text (for DB): {len(data.get('text', ''))} characters")
         
         # Debug: Log the full JSON payload being sent
         print(f"\n🔍 DEBUG - Full JSON payload:")
