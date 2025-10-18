@@ -239,6 +239,62 @@ def run_pipeline_with_logging(upload_id: str):
     if successful_steps == total_steps:
         print(f"🎉 All steps completed successfully!")
         
+        # Update data.json with step counts before running Step11
+        try:
+            print(f"\n{'='*60}")
+            print("📝 Updating data.json with processing results...")
+            print(f"{'='*60}")
+            
+            # Read existing JSON result files to get counts
+            step_counts = {}
+            
+            # Read counts from individual JSON files created by each step
+            json_files = {
+                'x-shores.json': 'step5_blue_X_shapes',
+                'square-shores.json': 'step6_red_squares',
+                'pinkFrames.json': 'step7_pink_shapes',
+                'greenFrames.json': 'step8_green_rectangles',
+                'orangeFrames.json': 'step9_orange_rectangles'
+            }
+            
+            for json_file, key in json_files.items():
+                if os.path.exists(json_file):
+                    try:
+                        with open(json_file, 'r') as f:
+                            data = json.load(f)
+                            if isinstance(data, list):
+                                step_counts[key] = len(data)
+                                print(f"   ✅ {key}: {len(data)}")
+                            elif isinstance(data, dict) and 'count' in data:
+                                step_counts[key] = data['count']
+                                print(f"   ✅ {key}: {data['count']}")
+                    except Exception as e:
+                        print(f"   ⚠️  Could not read {json_file}: {e}")
+                        step_counts[key] = 0
+                else:
+                    print(f"   ⚠️  {json_file} not found")
+                    step_counts[key] = 0
+            
+            # Update data.json with the collected counts
+            data_file = "data.json"
+            if os.path.exists(data_file):
+                with open(data_file, 'r') as f:
+                    data = json.load(f)
+            else:
+                data = {}
+            
+            data["step_results"] = step_counts
+            
+            # Write back to data.json
+            with open(data_file, 'w') as f:
+                json.dump(data, f, indent=4)
+            
+            print(f"✅ data.json updated with step results")
+            print(f"   Total results: {sum(step_counts.values())} detections")
+            
+        except Exception as e:
+            print(f"⚠️  Error updating data.json: {e}")
+        
         # Run Step11 to send results to API and get tracking URL
         try:
             print(f"\n{'='*50}")
