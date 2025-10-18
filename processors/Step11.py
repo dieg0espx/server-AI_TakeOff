@@ -131,6 +131,10 @@ def send_to_api(data, api_url):
         print(f"   - Step results: {len(data.get('step_results', {}))} items")
         print(f"   - Cloudinary URLs: {len(data.get('cloudinary_urls', {}))} items")
         
+        # Debug: Log the full JSON payload being sent
+        print(f"\n🔍 DEBUG - Full JSON payload:")
+        print(json.dumps(data, indent=2))
+        
         # Send POST request
         response = requests.post(
             api_url,
@@ -138,6 +142,12 @@ def send_to_api(data, api_url):
             headers={'Content-Type': 'application/json'},
             timeout=30
         )
+        
+        # Debug: Log the raw response
+        print(f"\n🔍 DEBUG - API Response:")
+        print(f"   Status Code: {response.status_code}")
+        print(f"   Headers: {dict(response.headers)}")
+        print(f"   Body: {response.text[:1000]}")
         
         # Check response
         if response.status_code in [200, 201]:
@@ -184,10 +194,19 @@ def send_to_api(data, api_url):
                 print(f"   Error: {error_data.get('error', 'Unknown error')}")
                 if 'errors' in error_data:
                     print("   Validation errors:")
-                    for error in error_data['errors']:
-                        print(f"   - {error}")
-            except:
-                print(f"   Response: {response.text[:500]}")
+                    if isinstance(error_data['errors'], list):
+                        for error in error_data['errors']:
+                            print(f"   - {error}")
+                    else:
+                        print(f"   - {error_data['errors']}")
+                # Show the full error response for debugging
+                print(f"\n   Full error response:")
+                print(f"   {json.dumps(error_data, indent=2)}")
+            except json.JSONDecodeError:
+                print(f"   Response (not JSON): {response.text[:500]}")
+            except Exception as e:
+                print(f"   Could not parse error response: {e}")
+                print(f"   Raw response: {response.text[:500]}")
             return False, None
             
     except requests.exceptions.Timeout:
