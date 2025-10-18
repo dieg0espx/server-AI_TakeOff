@@ -12,15 +12,15 @@ export async function DELETE(request: NextRequest) {
       )
     }
 
-    // Use the production PHP endpoint
-    const phpUrl = `https://ai-takeoff.ttfconstruction.com/delete.php?id=${id}`
+    // Use the new API endpoint
+    const phpUrl = `https://ttfconstruction.com/ai-takeoff-results/delete.php?id=${id}`
     
     const response = await fetch(phpUrl)
     const data = await response.json()
 
     if (!response.ok) {
       return NextResponse.json(
-        { success: false, message: data.message || 'Failed to delete take-off' },
+        { success: false, message: data.error || data.message || 'Failed to delete take-off' },
         { status: response.status }
       )
     }

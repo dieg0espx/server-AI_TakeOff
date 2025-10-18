@@ -10,25 +10,34 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Calendar, FileText, Building, MapPin, Eye, Download, Trash2 } from "lucide-react"
 import { format } from "date-fns"
 import { useToast } from "@/hooks/use-toast"
+import { useRouter } from "next/navigation"
 
 interface TakeOffData {
-  id: string
-  file_name: string
-  file_size: number
+  id: number
+  tracking_url: string
+  run_date?: string
   company?: string
   jobsite?: string
-  blue_x_shapes: number
-  red_squares: number
-  pink_shapes: number
-  green_rectangles: number
+  text?: string
   status: string
   created_at: string
-  original_url?: string
-  step4_results_url?: string
-  step5_results_url?: string
-  step6_results_url?: string
-  step7_results_url?: string
-  step8_results_url?: string
+  step_results: {
+    blue_x_shapes: number
+    red_squares: number
+    pink_shapes: number
+    green_rectangles: number
+    orange_rectangles: number
+    total_detections: number
+  }
+  cloudinary_urls: {
+    step4_results?: string
+    step5_results?: string
+    step6_results?: string
+    step7_results?: string
+    step8_results?: string
+    step9_results?: string
+    step10_results?: string
+  }
 }
 
 interface PreviousTakeoffsProps {
@@ -39,12 +48,21 @@ interface PreviousTakeoffsProps {
 interface TakeOffsResponse {
   success: boolean
   data: TakeOffData[]
-  count: number
+  pagination?: {
+    total: number
+    count: number
+    limit: number
+    offset: number
+    hasMore: boolean
+  }
+  // Legacy format support
+  count?: number
   total?: number
   limit?: number
   offset?: number
   hasMore?: boolean
   message?: string
+  error?: string
 }
 
 export function PreviousTakeoffs({ limit = 20, onViewTakeoff }: PreviousTakeoffsProps) {
@@ -55,6 +73,7 @@ export function PreviousTakeoffs({ limit = 20, onViewTakeoff }: PreviousTakeoffs
   const [viewLoading, setViewLoading] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const { toast } = useToast()
+  const router = useRouter()
 
   useEffect(() => {
     fetchTakeoffs()
@@ -71,9 +90,10 @@ export function PreviousTakeoffs({ limit = 20, onViewTakeoff }: PreviousTakeoffs
       
       if (data.success) {
         setTakeoffs(data.data)
-        setTotalCount(data.total || data.count)
+        const total = data.pagination?.total ?? data.total ?? data.count ?? 0
+        setTotalCount(total)
       } else {
-        setError(data.message || 'Failed to fetch take-offs')
+        setError(data.error || data.message || 'Failed to fetch take-offs')
       }
     } catch (err) {
       setError('Network error occurred while fetching take-offs')
@@ -83,16 +103,13 @@ export function PreviousTakeoffs({ limit = 20, onViewTakeoff }: PreviousTakeoffs
     }
   }
 
-  const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return '0 Bytes'
-    const k = 1024
-    const sizes = ['Bytes', 'KB', 'MB', 'GB']
-    const i = Math.floor(Math.log(bytes) / Math.log(k))
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
-  }
-
   const getTotalDetections = (takeoff: TakeOffData) => {
-    return takeoff.blue_x_shapes + takeoff.red_squares + takeoff.pink_shapes + takeoff.green_rectangles
+    return takeoff.step_results?.total_detections || 0
+  }
+  
+  const getFileName = (takeoff: TakeOffData) => {
+    // Use tracking_url as the display name
+    return takeoff.tracking_url || `Analysis #${takeoff.id}`
   }
 
   const getStatusColor = (status: string) => {
@@ -109,67 +126,14 @@ export function PreviousTakeoffs({ limit = 20, onViewTakeoff }: PreviousTakeoffs
   }
 
 
-  const handleViewTakeoff = async (takeoff: TakeOffData) => {
-    if (onViewTakeoff) {
-      // Fetch detailed data and navigate to main page
-      try {
-        setViewLoading(true)
-        setError(null)
-        
-        const response = await fetch(`/api/takeoffs?id=${takeoff.id}`)
-        const data = await response.json()
-        
-        if (data.success && data.data) {
-          // Transform database data to match AnalysisResults expected format
-          const dbData = data.data
-          const transformedData = {
-            id: dbData.id,
-            status: dbData.status,
-            pdf_path: '', // Not stored in database
-            pdf_size: dbData.file_size,
-            svg_path: '', // Not stored in database
-            svg_size: 0, // Not stored in database
-            message: 'Analysis completed',
-            results: {
-              step_results: {
-                step5_blue_X_shapes: dbData.blue_x_shapes,
-                step6_red_squares: dbData.red_squares,
-                step7_pink_shapes: dbData.pink_shapes,
-                step8_green_rectangles: dbData.green_rectangles
-              },
-            cloudinary_urls: {
-              original: dbData.original_url || '',
-              step4_results: dbData.step4_results_url || '',
-              step5_results: dbData.step5_results_url || '',
-              step6_results: dbData.step6_results_url || '',
-              step7_results: dbData.step7_results_url || '',
-              step8_results: dbData.step8_results_url || ''
-            },
-              extracted_text: dbData.extracted_text || ''
-            }
-          }
-          
-          onViewTakeoff({
-            fileName: takeoff.file_name,
-            result: transformedData,
-            company: takeoff.company,
-            jobsite: takeoff.jobsite
-          })
-        } else {
-          setError(data.message || 'Failed to fetch detailed takeoff data')
-        }
-      } catch (err) {
-        setError('Network error occurred while fetching detailed takeoff data')
-        console.error('Error fetching detailed takeoff:', err)
-      } finally {
-        setViewLoading(false)
-      }
-    }
+  const handleViewTakeoff = (takeoff: TakeOffData) => {
+    // Navigate to the dedicated results page
+    router.push(`/results/${takeoff.tracking_url}`)
   }
 
-  const handleDeleteTakeoff = async (takeoffId: string) => {
+  const handleDeleteTakeoff = async (takeoffId: number) => {
     try {
-      setDeletingId(takeoffId)
+      setDeletingId(takeoffId.toString())
       
       const response = await fetch(`/api/takeoffs/delete?id=${takeoffId}`, {
         method: 'DELETE',
@@ -192,7 +156,7 @@ export function PreviousTakeoffs({ limit = 20, onViewTakeoff }: PreviousTakeoffs
       } else {
         toast({
           title: "Error",
-          description: data.message || "Failed to delete analysis result",
+          description: data.error || data.message || "Failed to delete analysis result",
           variant: "destructive",
         })
       }
@@ -281,11 +245,11 @@ export function PreviousTakeoffs({ limit = 20, onViewTakeoff }: PreviousTakeoffs
           {takeoffs.map((takeoff) => (
             <Card key={takeoff.id} className="hover:shadow-md transition-shadow overflow-hidden">
               {/* Step 4 Results Image */}
-              {takeoff.original_url && (
+              {takeoff.cloudinary_urls?.step4_results && (
                 <div className="aspect-video w-full overflow-hidden -mt-6 ">
                   <img 
-                    src={takeoff.original_url} 
-                    alt={`Analysis results for ${takeoff.file_name}`}
+                    src={takeoff.cloudinary_urls.step4_results} 
+                    alt={`Analysis results for ${getFileName(takeoff)}`}
                     className="w-full h-full object-cover hover:scale-105 transition-transform duration-200 "
                   />
                 </div>
@@ -293,11 +257,11 @@ export function PreviousTakeoffs({ limit = 20, onViewTakeoff }: PreviousTakeoffs
               <CardHeader >
                 <div className="flex items-start justify-between">
                   <div className="flex-1 min-w-0">
-                    <CardTitle className="text-sm font-medium truncate" title={takeoff.file_name}>
-                      {takeoff.file_name}
+                    <CardTitle className="text-sm font-medium truncate" title={getFileName(takeoff)}>
+                      {getFileName(takeoff)}
                     </CardTitle>
                     <CardDescription className="text-xs text-muted-foreground mt-1">
-                      {formatFileSize(takeoff.file_size)}
+                      {takeoff.run_date ? format(new Date(takeoff.run_date), 'PPP') : 'No date'}
                     </CardDescription>
                   </div>
                   {/* <Badge className={`text-xs ${getStatusColor(takeoff.status)}`}>
@@ -330,19 +294,19 @@ export function PreviousTakeoffs({ limit = 20, onViewTakeoff }: PreviousTakeoffs
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     <div className="flex items-center justify-between">
                       <span className="text-muted-foreground">Blue X:</span>
-                      <span className="font-medium">{takeoff.blue_x_shapes}</span>
+                      <span className="font-medium">{takeoff.step_results?.blue_x_shapes || 0}</span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-muted-foreground">Red Squares:</span>
-                      <span className="font-medium">{takeoff.red_squares}</span>
+                      <span className="font-medium">{takeoff.step_results?.red_squares || 0}</span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-muted-foreground">Pink Shapes:</span>
-                      <span className="font-medium">{takeoff.pink_shapes}</span>
+                      <span className="font-medium">{takeoff.step_results?.pink_shapes || 0}</span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-muted-foreground">Green Rect:</span>
-                      <span className="font-medium">{takeoff.green_rectangles}</span>
+                      <span className="font-medium">{takeoff.step_results?.green_rectangles || 0}</span>
                     </div>
                   </div>
 
@@ -367,11 +331,12 @@ export function PreviousTakeoffs({ limit = 20, onViewTakeoff }: PreviousTakeoffs
                       size="sm" 
                       className="flex-1 text-xs"
                       onClick={() => handleViewTakeoff(takeoff)}
+                      disabled={viewLoading}
                     >
                       <Eye className="h-3 w-3 mr-1" />
                       View
                     </Button>
-                    {takeoff.step8_results_url && (
+                    {takeoff.cloudinary_urls?.step8_results && (
                       <Button variant="outline" size="sm" className="flex-1 text-xs">
                         <Download className="h-3 w-3 mr-1" />
                         Download
@@ -383,26 +348,32 @@ export function PreviousTakeoffs({ limit = 20, onViewTakeoff }: PreviousTakeoffs
                           variant="outline" 
                           size="sm" 
                           className="text-xs text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200 hover:border-red-300"
-                          disabled={deletingId === takeoff.id}
+                          disabled={deletingId === takeoff.id.toString()}
                         >
                           <Trash2 className="h-3 w-3 mr-1" />
-                          {deletingId === takeoff.id ? 'Deleting...' : 'Delete'}
+                          {deletingId === takeoff.id.toString() ? 'Deleting...' : 'Delete'}
                         </Button>
                       </AlertDialogTrigger>
                       <AlertDialogContent>
                         <AlertDialogHeader>
-                          <AlertDialogTitle>Delete Analysis Result</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            Are you sure you want to delete "{takeoff.file_name}"? This action cannot be undone.
+                          <AlertDialogTitle>⚠️ Delete Analysis Result</AlertDialogTitle>
+                          <AlertDialogDescription asChild>
+                            <div className="space-y-2">
+                              <div className="font-medium">Are you sure you want to delete this analysis?</div>
+                              <div className="text-sm"><strong>File:</strong> {getFileName(takeoff)}</div>
+                              {takeoff.company && <div className="text-sm"><strong>Company:</strong> {takeoff.company}</div>}
+                              {takeoff.jobsite && <div className="text-sm"><strong>Jobsite:</strong> {takeoff.jobsite}</div>}
+                              <div className="text-red-600 font-medium mt-2">⚠️ This action cannot be undone!</div>
+                            </div>
                           </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
                           <AlertDialogCancel>Cancel</AlertDialogCancel>
                           <AlertDialogAction
                             onClick={() => handleDeleteTakeoff(takeoff.id)}
-                            className="bg-red-600 hover:bg-red-700"
+                            className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
                           >
-                            Delete
+                            Yes, Delete Permanently
                           </AlertDialogAction>
                         </AlertDialogFooter>
                       </AlertDialogContent>
