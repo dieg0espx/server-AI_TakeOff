@@ -94,10 +94,42 @@ def cleanup_result_files():
         print(f"❌ Error during cleanup: {e}")
         return False
 
+def validate_and_prepare_data(data):
+    """Validate and prepare data with required fields"""
+    # Ensure all required fields are present
+    if 'company' not in data or not data['company']:
+        data['company'] = 'Unknown Company'
+    
+    if 'jobsite' not in data or not data['jobsite']:
+        data['jobsite'] = 'Unknown Jobsite'
+    
+    # Ensure step_results exists
+    if 'step_results' not in data:
+        data['step_results'] = {}
+    
+    # Ensure cloudinary_urls exists
+    if 'cloudinary_urls' not in data:
+        data['cloudinary_urls'] = {}
+    
+    # Ensure upload_id exists
+    if 'upload_id' not in data:
+        data['upload_id'] = 'unknown'
+    
+    return data
+
 def send_to_api(data, api_url):
     """Send data to PHP API endpoint"""
     try:
+        # Validate and prepare data
+        data = validate_and_prepare_data(data)
+        
         print(f"📤 Sending data to API: {api_url}")
+        print(f"📋 Data summary:")
+        print(f"   - Company: {data.get('company')}")
+        print(f"   - Jobsite: {data.get('jobsite')}")
+        print(f"   - Upload ID: {data.get('upload_id')}")
+        print(f"   - Step results: {len(data.get('step_results', {}))} items")
+        print(f"   - Cloudinary URLs: {len(data.get('cloudinary_urls', {}))} items")
         
         # Send POST request
         response = requests.post(
@@ -150,8 +182,12 @@ def send_to_api(data, api_url):
             try:
                 error_data = response.json()
                 print(f"   Error: {error_data.get('error', 'Unknown error')}")
+                if 'errors' in error_data:
+                    print("   Validation errors:")
+                    for error in error_data['errors']:
+                        print(f"   - {error}")
             except:
-                print(f"   Response: {response.text[:200]}")
+                print(f"   Response: {response.text[:500]}")
             return False, None
             
     except requests.exceptions.Timeout:
