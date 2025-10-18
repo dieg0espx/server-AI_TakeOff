@@ -153,7 +153,7 @@ def run_pipeline_with_logging(upload_id: str):
     import importlib.util
     import json
     
-    # Define the processing steps in order
+    # Define the processing steps in order (Steps 1-10 only, 11-12 run separately)
     steps = [
         "Step1",  # Remove duplicate paths
         "Step2",  # Modify colors (lightgray and black)
@@ -165,8 +165,6 @@ def run_pipeline_with_logging(upload_id: str):
         "Step8",  # Detect green rectangles
         "Step9",  # Detect orange rectangles
         "Step10", # Draw all containers onto Step2.svg
-        "Step11", # Extract text from PDF and rewrite with OpenAI
-        "Step12", # Send results to API and cleanup
     ]
     
     successful_steps = 0
@@ -321,6 +319,40 @@ def run_pipeline_with_logging(upload_id: str):
             
         except Exception as e:
             print(f"⚠️  Error updating data.json: {e}")
+        
+        # Now run Step11 and Step12 after data is prepared
+        final_steps = ["Step11", "Step12"]
+        
+        for step in final_steps:
+            try:
+                print(f"\n{'='*50}")
+                print(f"Running {step}...")
+                print(f"{'='*50}")
+                
+                step_file = f"processors/{step}.py"
+                if os.path.exists(step_file):
+                    spec = importlib.util.spec_from_file_location(step, step_file)
+                    step_module = importlib.util.module_from_spec(spec)
+                    sys.modules[step] = step_module
+                    spec.loader.exec_module(step_module)
+                    
+                    run_function_name = f'run_{step.lower()}'
+                    if hasattr(step_module, run_function_name):
+                        run_function = getattr(step_module, run_function_name)
+                        success = run_function()
+                        
+                        if success:
+                            successful_steps += 1
+                            print(f"✅ {step} completed successfully")
+                        else:
+                            print(f"⚠️  {step} failed, but pipeline will continue")
+                    else:
+                        print(f"⚠️  No run function found for {step}")
+                else:
+                    print(f"⚠️  {step_file} not found")
+                    
+            except Exception as e:
+                print(f"⚠️  Exception in {step}: {e}")
         
         return True, None, None
     else:
