@@ -28,71 +28,6 @@ def load_data_json(file_path='data.json'):
         print(f"❌ Error reading {file_path}: {e}")
         return None
 
-def cleanup_result_files():
-    """Delete all step result files from the files folder"""
-    try:
-        print(f"\n🧹 Cleaning up result files...")
-        
-        # Get the current working directory to determine the correct paths
-        current_dir = os.getcwd()
-        
-        # If we're in the processors directory, use relative paths
-        if current_dir.endswith('processors'):
-            files_dir = "../files"
-        else:
-            files_dir = "files"
-        
-        # Determine the root directory (parent of files folder)
-        if current_dir.endswith('processors'):
-            root_dir = ".."
-        else:
-            root_dir = "."
-        
-        # List of files to delete
-        files_to_delete = [
-            # Step SVG files
-            f"{files_dir}/Step1.svg",
-            f"{files_dir}/Step2.svg",
-            f"{files_dir}/Step3.svg",
-            f"{files_dir}/Step4.svg",
-            f"{files_dir}/Step5.svg",
-            f"{files_dir}/Step6.svg",
-            f"{files_dir}/Step7.svg",
-            f"{files_dir}/Step8.svg",
-            f"{files_dir}/Step9.svg",
-            f"{files_dir}/step10.svg",
-            # Result PNG files
-            f"{files_dir}/Step4-results.png",
-            f"{files_dir}/Step5-results.png",
-            f"{files_dir}/Step6-results.png",
-            f"{files_dir}/Step7-results.png",
-            f"{files_dir}/Step8-results.png",
-            f"{files_dir}/Step9-results.png",
-            f"{files_dir}/Step10-results.png",
-            # JSON result files
-            f"{root_dir}/greenFrames.json",
-            f"{root_dir}/pinkFrames.json",
-            f"{root_dir}/x-shores.json",
-            f"{root_dir}/square-shores.json",
-            f"{root_dir}/orangeFrames.json",
-        ]
-        
-        deleted_count = 0
-        for file_path in files_to_delete:
-            if os.path.exists(file_path):
-                try:
-                    os.remove(file_path)
-                    deleted_count += 1
-                    print(f"   ✅ Deleted: {os.path.basename(file_path)}")
-                except Exception as e:
-                    print(f"   ⚠️  Could not delete {os.path.basename(file_path)}: {e}")
-        
-        print(f"\n✅ Cleaned up {deleted_count} result files")
-        return True
-        
-    except Exception as e:
-        print(f"❌ Error during cleanup: {e}")
-        return False
 
 def validate_and_prepare_data(data):
     """Validate and prepare data with required fields"""
@@ -301,9 +236,6 @@ def run_step11():
                     print(f"✅ Tracking URL saved to {data_file}")
                 except Exception as e:
                     print(f"⚠️  Could not save tracking URL to data.json: {e}")
-            
-            # Clean up result files after successful storage
-            cleanup_result_files()
             
             # Display final tracking URL prominently
             if tracking_url:

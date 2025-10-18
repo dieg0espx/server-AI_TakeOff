@@ -115,6 +115,72 @@ def store_text_in_data_json(extracted_text: str, rewritten_text: str, pdf_path: 
         print(f"❌ Error storing text in data.json: {str(e)}")
 
 
+def cleanup_result_files():
+    """Delete all step result files from the files folder"""
+    try:
+        print(f"\n🧹 Cleaning up result files...")
+        
+        # Get the current working directory to determine the correct paths
+        current_dir = os.getcwd()
+        
+        # If we're in the processors directory, use relative paths
+        if current_dir.endswith('processors'):
+            files_dir = "../files"
+        else:
+            files_dir = "files"
+        
+        # Determine the root directory (parent of files folder)
+        if current_dir.endswith('processors'):
+            root_dir = ".."
+        else:
+            root_dir = "."
+        
+        # List of files to delete
+        files_to_delete = [
+            # Step SVG files
+            f"{files_dir}/Step1.svg",
+            f"{files_dir}/Step2.svg",
+            f"{files_dir}/Step3.svg",
+            f"{files_dir}/Step4.svg",
+            f"{files_dir}/Step5.svg",
+            f"{files_dir}/Step6.svg",
+            f"{files_dir}/Step7.svg",
+            f"{files_dir}/Step8.svg",
+            f"{files_dir}/Step9.svg",
+            f"{files_dir}/step10.svg",
+            # Result PNG files
+            f"{files_dir}/Step4-results.png",
+            f"{files_dir}/Step5-results.png",
+            f"{files_dir}/Step6-results.png",
+            f"{files_dir}/Step7-results.png",
+            f"{files_dir}/Step8-results.png",
+            f"{files_dir}/Step9-results.png",
+            f"{files_dir}/Step10-results.png",
+            # JSON result files
+            f"{root_dir}/greenFrames.json",
+            f"{root_dir}/pinkFrames.json",
+            f"{root_dir}/x-shores.json",
+            f"{root_dir}/square-shores.json",
+            f"{root_dir}/orangeFrames.json",
+        ]
+        
+        deleted_count = 0
+        for file_path in files_to_delete:
+            if os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                    deleted_count += 1
+                    print(f"   ✅ Deleted: {os.path.basename(file_path)}")
+                except Exception as e:
+                    print(f"   ⚠️  Could not delete {os.path.basename(file_path)}: {e}")
+        
+        print(f"\n✅ Cleaned up {deleted_count} result files")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Error during cleanup: {e}")
+        return False
+
 def run_step12():
     """
     Run Step12 processing - extract text from PDF and rewrite professionally
@@ -163,6 +229,9 @@ def run_step12():
             # Store both texts in data.json
             print("\n💾 Storing extracted and rewritten text in data.json...")
             store_text_in_data_json(extracted_text, rewritten_text, pdf_path)
+            
+            # Clean up result files after successful processing
+            cleanup_result_files()
             
             print(f"\n✅ Step12 completed successfully")
             print(f"   - Original text: {len(extracted_text)} characters")
