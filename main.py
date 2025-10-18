@@ -287,12 +287,35 @@ def run_pipeline_with_logging(upload_id: str):
             
             data["step_results"] = step_counts
             
-            # Write back to data.json
-            with open(data_file, 'w') as f:
-                json.dump(data, f, indent=4)
-            
             print(f"✅ data.json updated with step results")
             print(f"   Total results: {sum(step_counts.values())} detections")
+            
+            # Upload result images to Cloudinary
+            try:
+                print(f"\n☁️  Uploading processing results to Cloudinary...")
+                from api.cloudinary_manager import get_cloudinary_manager
+                cloudinary_manager = get_cloudinary_manager()
+                
+                if cloudinary_manager:
+                    cloudinary_urls = cloudinary_manager.upload_processing_results(step_counts)
+                    
+                    if cloudinary_urls:
+                        # Merge with existing cloudinary_urls (preserve 'original' if it exists)
+                        if 'cloudinary_urls' not in data:
+                            data['cloudinary_urls'] = {}
+                        data['cloudinary_urls'].update(cloudinary_urls)
+                        print(f"✅ Successfully uploaded {len(cloudinary_urls)} images to Cloudinary")
+                    else:
+                        print("⚠️  No images were uploaded to Cloudinary")
+                else:
+                    print("⚠️  Cloudinary not configured - skipping image uploads")
+                    
+            except Exception as e:
+                print(f"⚠️  Error uploading to Cloudinary: {str(e)}")
+            
+            # Write back to data.json with Cloudinary URLs
+            with open(data_file, 'w') as f:
+                json.dump(data, f, indent=4)
             
         except Exception as e:
             print(f"⚠️  Error updating data.json: {e}")
