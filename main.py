@@ -321,28 +321,8 @@ def run_pipeline_with_logging(upload_id: str):
         except Exception as e:
             print(f"⚠️  Error updating data.json: {e}")
         
-        # Run Step11 to send results to API and get tracking URL
-        try:
-            print(f"\n{'='*50}")
-            print("Running Step11...")
-            print(f"{'='*50}")
-            
-            step_file = "processors/Step11.py"
-            if os.path.exists(step_file):
-                spec = importlib.util.spec_from_file_location("Step11", step_file)
-                step_module = importlib.util.module_from_spec(spec)
-                sys.modules["Step11"] = step_module
-                spec.loader.exec_module(step_module)
-                
-                if hasattr(step_module, 'run_step11'):
-                    step11_success = step_module.run_step11()
-                    if step11_success:
-                        successful_steps += 1
-                        print(f"✅ Step11 completed successfully")
-                    else:
-                        print(f"⚠️  Step11 failed, but pipeline will continue")
-        except Exception as e:
-            print(f"⚠️  Exception in Step11: {e}")
+        # Note: Step11 (API sending) is now integrated into Step12
+        # Step12 will handle text extraction, rewriting, and sending to API
         
         return True, None, None
     else:

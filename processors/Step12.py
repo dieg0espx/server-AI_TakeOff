@@ -9,6 +9,7 @@ import sys
 import json
 from pathlib import Path
 from dotenv import load_dotenv
+import requests
 
 # Load environment variables
 load_dotenv()
@@ -181,6 +182,114 @@ def cleanup_result_files():
         print(f"❌ Error during cleanup: {e}")
         return False
 
+def validate_and_prepare_data(data):
+    """Validate and prepare data with required fields"""
+    # Ensure all required fields are present
+    if 'company' not in data or not data['company']:
+        data['company'] = 'Unknown Company'
+    
+    if 'jobsite' not in data or not data['jobsite']:
+        data['jobsite'] = 'Unknown Jobsite'
+    
+    # Ensure step_results exists
+    if 'step_results' not in data:
+        data['step_results'] = {}
+    
+    # Ensure cloudinary_urls exists
+    if 'cloudinary_urls' not in data:
+        data['cloudinary_urls'] = {}
+    
+    # Ensure upload_id exists
+    if 'upload_id' not in data:
+        data['upload_id'] = 'unknown'
+    
+    # Add text field from rewritten_text (for database storage)
+    if 'rewritten_text' in data and data['rewritten_text']:
+        data['text'] = data['rewritten_text']
+    elif 'extracted_text' in data and data['extracted_text']:
+        # Fallback to extracted_text if rewritten_text is not available
+        data['text'] = data['extracted_text']
+    else:
+        data['text'] = ''
+    
+    return data
+
+def send_to_api(data, api_url):
+    """Send data to PHP API endpoint"""
+    try:
+        # Validate and prepare data
+        data = validate_and_prepare_data(data)
+        
+        print(f"\n📤 Sending data to API: {api_url}")
+        print(f"📋 Data summary:")
+        print(f"   - Company: {data.get('company')}")
+        print(f"   - Jobsite: {data.get('jobsite')}")
+        print(f"   - Upload ID: {data.get('upload_id')}")
+        print(f"   - Step results: {len(data.get('step_results', {}))} items")
+        print(f"   - Cloudinary URLs: {len(data.get('cloudinary_urls', {}))} items")
+        print(f"   - Text (for DB): {len(data.get('text', ''))} characters")
+        
+        # Send POST request
+        response = requests.post(
+            api_url,
+            json=data,
+            headers={'Content-Type': 'application/json'},
+            timeout=30
+        )
+        
+        # Check response
+        if response.status_code in [200, 201]:
+            result = response.json()
+            if result.get('success'):
+                print(f"✅ Data successfully sent to API!")
+                print(f"   Database Record ID: {result.get('id')}")
+                
+                # Display tracking URL
+                tracking_url = result.get('tracking_url')
+                if tracking_url:
+                    # Extract base URL from API endpoint
+                    api_base = api_url.replace('/create.php', '')
+                    full_tracking_url = f"{api_base}/read.php?tracking_url={tracking_url}"
+                    
+                    print(f"\n🔗 TRACKING URL:")
+                    print(f"   {full_tracking_url}")
+                    print(f"\n   Share this URL to view the results!")
+                
+                return True, tracking_url
+            else:
+                print(f"❌ API returned error: {result.get('error')}")
+                if 'errors' in result:
+                    for error in result['errors']:
+                        print(f"   - {error}")
+                return False, None
+        else:
+            print(f"❌ API request failed with status code: {response.status_code}")
+            try:
+                error_data = response.json()
+                print(f"   Error: {error_data.get('error', 'Unknown error')}")
+                if 'errors' in error_data:
+                    print("   Validation errors:")
+                    if isinstance(error_data['errors'], list):
+                        for error in error_data['errors']:
+                            print(f"   - {error}")
+                    else:
+                        print(f"   - {error_data['errors']}")
+            except json.JSONDecodeError:
+                print(f"   Response (not JSON): {response.text[:500]}")
+            except Exception as e:
+                print(f"   Could not parse error response: {e}")
+            return False, None
+            
+    except requests.exceptions.Timeout:
+        print("❌ Request timed out after 30 seconds")
+        return False, None
+    except requests.exceptions.ConnectionError:
+        print("❌ Connection error - could not reach the API")
+        return False, None
+    except Exception as e:
+        print(f"❌ Error sending data to API: {e}")
+        return False, None
+
 def run_step12():
     """
     Run Step12 processing - extract text from PDF and rewrite professionally
@@ -230,7 +339,45 @@ def run_step12():
             print("\n💾 Storing extracted and rewritten text in data.json...")
             store_text_in_data_json(extracted_text, rewritten_text, pdf_path)
             
-            # Clean up result files after successful processing
+            # Send data to API
+            try:
+                # Get API URL from environment or use default
+                API_URL = os.environ.get('API_URL', 'https://ttfconstruction.com/ai-takeoff-results/create.php')
+                
+                # Load data.json to send to API
+                data_file = "data.json" if not current_dir.endswith('processors') else "../data.json"
+                if os.path.exists(data_file):
+                    with open(data_file, 'r') as f:
+                        data = json.load(f)
+                    
+                    # Send to API
+                    success, tracking_url = send_to_api(data, API_URL)
+                    
+                    if success and tracking_url:
+                        # Save tracking URL to data.json
+                        data['tracking_url'] = tracking_url
+                        with open(data_file, 'w') as f:
+                            json.dump(data, f, indent=4)
+                        
+                        # Display final tracking URL prominently
+                        api_base = API_URL.replace('/create.php', '')
+                        full_tracking_url = f"{api_base}/read.php?tracking_url={tracking_url}"
+                        
+                        print("\n" + "=" * 70)
+                        print("🔗 RESULTS URL (Share this link to view the results)")
+                        print("=" * 70)
+                        print(f"\n{full_tracking_url}\n")
+                        print("=" * 70)
+                    else:
+                        print("\n⚠️  Failed to send results to API")
+                        print("   Data is still available in data.json")
+                else:
+                    print("\n⚠️  data.json not found - cannot send to API")
+                    
+            except Exception as e:
+                print(f"\n⚠️  Error sending to API: {e}")
+            
+            # Clean up result files after successful processing and API send
             cleanup_result_files()
             
             print(f"\n✅ Step12 completed successfully")
