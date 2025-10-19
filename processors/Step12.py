@@ -56,9 +56,17 @@ def validate_and_prepare_data(data):
     # Add text field from rewritten_text ONLY (for database storage)
     if 'rewritten_text' in data and data['rewritten_text']:
         data['text'] = data['rewritten_text']
+        print(f"   ✅ Using rewritten_text for database ({len(data['text'])} chars)")
     else:
         # Only use rewritten text, not the raw extracted text
         data['text'] = ''
+        print(f"   ⚠️  No rewritten_text found - text field will be empty")
+    
+    # Verify we're not accidentally using extracted_text
+    if 'extracted_text' in data and 'rewritten_text' in data:
+        if data['extracted_text'] == data['rewritten_text']:
+            print(f"   ⚠️  WARNING: extracted_text and rewritten_text are identical!")
+            print(f"   This means OpenAI did not properly rewrite the text in Step 11")
     
     return data
 

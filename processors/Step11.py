@@ -35,6 +35,7 @@ def rewrite_text_with_openai(extracted_text: str) -> str:
         api_key = os.getenv('OPENAI_API_KEY')
         if not api_key:
             print("⚠️  OPENAI_API_KEY not found in environment variables")
+            print("   Skipping OpenAI rewriting, using extracted text as-is")
             return extracted_text
         
         print("\n🤖 Rewriting text with OpenAI API...")
@@ -43,39 +44,59 @@ def rewrite_text_with_openai(extracted_text: str) -> str:
         client = OpenAI(api_key=api_key)
         
         # Create the prompt for professional rewriting
-        prompt = f"""You are a professional technical writer specializing in construction and scaffolding documentation.
+        prompt = f"""You are a professional construction documentation specialist. The text below was extracted from a scaffolding/shoring construction drawing using OCR and contains many errors, inconsistent formatting, and poor readability.
 
-The following text was extracted using OCR from a scaffolding construction drawing. It contains technical specifications, measurements, and construction notes.
+Your task: Rewrite this into a clean, professional, well-structured document that:
+1. Fixes all OCR errors and typos
+2. Organizes information into clear sections with headers
+3. Standardizes measurements and technical terms
+4. Removes gibberish and maintains only meaningful content
+5. Uses proper construction industry terminology
+6. Formats lists, specifications, and notes properly
+7. Makes it easy to read and professional
 
-Please rewrite this text in a clear, professional, and well-organized manner suitable for scaffolding construction documentation. Organize the information logically, correct any OCR errors, standardize measurements and terminology, and present it in a professional format.
-
-Original OCR Text:
+RAW OCR TEXT:
 {extracted_text}
 
-Please provide a professionally written version:"""
+REWRITTEN PROFESSIONAL VERSION:"""
 
         # Call OpenAI API
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "You are a professional technical writer specializing in construction and scaffolding documentation. You rewrite OCR-extracted text from scaffolding drawings into clear, professional, and well-organized documentation."},
+                {
+                    "role": "system", 
+                    "content": "You are an expert construction technical writer. You transform messy OCR text from construction drawings into clear, professional documentation. Always rewrite and restructure the content - never return the original text unchanged."
+                },
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.3,
-            max_tokens=2000
+            temperature=0.4,  # Slightly higher for more creative rewriting
+            max_tokens=3000   # Increased to allow for more detailed output
         )
         
         # Extract the rewritten text
         rewritten_text = response.choices[0].message.content.strip()
         
+        # Validate that OpenAI actually rewrote the text (not just returned the same)
+        if rewritten_text == extracted_text or len(rewritten_text) < 50:
+            print("⚠️  OpenAI returned text that appears unchanged or too short")
+            print("   Using extracted text as fallback")
+            return extracted_text
+        
         print("✅ Text successfully rewritten by OpenAI")
+        print(f"   Original length: {len(extracted_text)} chars")
+        print(f"   Rewritten length: {len(rewritten_text)} chars")
         return rewritten_text
         
     except ImportError:
         print("⚠️  OpenAI package not installed. Run: pip install openai")
+        print("   Using extracted text as-is")
         return extracted_text
     except Exception as e:
         print(f"⚠️  Error calling OpenAI API: {e}")
+        print("   Using extracted text as fallback")
+        import traceback
+        traceback.print_exc()
         return extracted_text
 
 def store_text_in_data_json(extracted_text: str, rewritten_text: str, pdf_path: str):

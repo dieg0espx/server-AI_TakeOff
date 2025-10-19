@@ -24,11 +24,16 @@ PORT=5001
 # Convertio API (for PDF to SVG conversion)
 CONVERTIO_API_KEY=your_convertio_api_key_here
 
+# OpenAI API (for text rewriting from OCR)
+OPENAI_API_KEY=your_openai_api_key_here
+
 # External API Configuration
 API_URL=https://ttfconstruction.com/ai-takeoff-results/create.php
 ```
 
-Get your Convertio API key from: https://convertio.co/api/
+Get your API keys from:
+- Convertio: https://convertio.co/api/
+- OpenAI: https://platform.openai.com/api-keys
 
 ## Local Development Setup
 
@@ -77,6 +82,7 @@ docker build -t ai-takeoff-server .
 ```bash
 docker run -p 5001:5001 \
   -e CONVERTIO_API_KEY=your_key_here \
+  -e OPENAI_API_KEY=your_openai_key_here \
   -e API_URL=https://ttfconstruction.com/ai-takeoff-results/create.php \
   ai-takeoff-server
 ```

@@ -17,6 +17,8 @@ Before deploying, you need to set up the following environment variables in Rail
 1. **PORT** (Railway sets this automatically, but defaults to 5001)
 2. **CONVERTIO_API_KEY** - Get from https://convertio.co/api/
    - Required for PDF to SVG conversion
+3. **OPENAI_API_KEY** - Get from https://platform.openai.com/api-keys
+   - Required for professionally rewriting extracted text from PDFs
 
 ### Optional Variables
 
@@ -50,6 +52,7 @@ Before deploying, you need to set up the following environment variables in Rail
    - Add the following variables:
      ```
      CONVERTIO_API_KEY=your_actual_api_key_here
+     OPENAI_API_KEY=your_openai_api_key_here
      API_URL=https://ttfconstruction.com/ai-takeoff-results/create.php
      ```
 
@@ -81,6 +84,7 @@ Before deploying, you need to set up the following environment variables in Rail
 4. **Set environment variables**
    ```bash
    railway variables set CONVERTIO_API_KEY=your_actual_api_key_here
+   railway variables set OPENAI_API_KEY=your_openai_api_key_here
    railway variables set API_URL=https://ttfconstruction.com/ai-takeoff-results/create.php
    ```
 

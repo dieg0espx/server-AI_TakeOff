@@ -28,6 +28,11 @@ git push origin master
   - Copy your API key
   - Required for PDF to SVG conversion
 
+- [ ] **OpenAI API Key** - Get from https://platform.openai.com/api-keys
+  - Sign up for OpenAI account
+  - Create a new API key
+  - Required for professionally rewriting extracted text from PDFs
+
 ### 4. Railway Setup
 
 #### Create New Project
@@ -42,6 +47,7 @@ In Railway dashboard → Variables tab, add:
 
 ```
 CONVERTIO_API_KEY=your_actual_api_key_here
+OPENAI_API_KEY=your_openai_api_key_here
 API_URL=https://ttfconstruction.com/ai-takeoff-results/create.php
 ```
 
@@ -77,6 +83,7 @@ docker build -t ai-takeoff-server .
 # 2. Run the container
 docker run -p 5001:5001 \
   -e CONVERTIO_API_KEY=your_key_here \
+  -e OPENAI_API_KEY=your_openai_key_here \
   -e API_URL=https://ttfconstruction.com/ai-takeoff-results/create.php \
   ai-takeoff-server
 
@@ -113,6 +120,12 @@ curl http://localhost:5001/health
 **Solution:**
 - Verify CONVERTIO_API_KEY is set correctly
 - Check Convertio account has available quota
+
+### Issue: Text is not being rewritten by OpenAI
+**Solution:**
+- Verify OPENAI_API_KEY is set correctly in Railway environment variables
+- Check OpenAI account has available credits
+- View logs to see if OpenAI API call is succeeding
 
 ### Issue: 502 Bad Gateway
 **Solution:**
