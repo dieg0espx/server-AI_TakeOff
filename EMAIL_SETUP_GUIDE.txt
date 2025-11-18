@@ -1,0 +1,102 @@
+EMAIL NOTIFICATIONS SETUP GUIDE
+================================
+
+Your AI TakeOff server now has email notifications enabled for:
+1. ✅ Successful takeoff creation (with detection results and URLs)
+2. ❌ Any errors during processing (with detailed error information)
+
+REQUIRED ENVIRONMENT VARIABLES
+------------------------------
+Add these to your .env file:
+
+# Email Configuration
+SMTP_HOST=smtp.gmail.com                    # SMTP server (Gmail by default)
+SMTP_PORT=587                                # SMTP port (587 for TLS)
+SMTP_USER=your-email@gmail.com              # Your email address
+SMTP_PASSWORD=your-app-password             # Your email app password (see below)
+NOTIFICATION_EMAIL=your-email@gmail.com     # Where to receive notifications
+EMAIL_NOTIFICATIONS_ENABLED=true            # Set to 'false' to disable
+
+GMAIL SETUP INSTRUCTIONS
+-------------------------
+If you're using Gmail, you need to create an "App Password":
+
+1. Go to your Google Account settings: https://myaccount.google.com/
+2. Click on "Security" in the left sidebar
+3. Enable "2-Step Verification" if not already enabled
+4. After enabling 2FA, go back to Security settings
+5. Find "App passwords" section
+6. Click "App passwords"
+7. Select "Mail" and "Other (Custom name)"
+8. Enter a name like "AI TakeOff Server"
+9. Click "Generate"
+10. Copy the 16-character password
+11. Use this password for SMTP_PASSWORD in your .env file
+
+ALTERNATIVE EMAIL PROVIDERS
+----------------------------
+For other email providers, update these settings:
+
+Outlook/Hotmail:
+SMTP_HOST=smtp-mail.outlook.com
+SMTP_PORT=587
+
+Yahoo Mail:
+SMTP_HOST=smtp.mail.yahoo.com
+SMTP_PORT=587
+
+Custom SMTP:
+SMTP_HOST=your-smtp-server.com
+SMTP_PORT=587 (or your provider's port)
+
+NOTIFICATION TYPES
+------------------
+
+1. SUCCESS NOTIFICATIONS
+   - Sent when a new takeoff is successfully created
+   - Includes:
+     * Upload ID
+     * Detection results (X shapes, squares, rectangles)
+     * Total detections count
+     * Links to result images on Cloudinary
+     * Link to full report (if available)
+
+2. ERROR NOTIFICATIONS
+   - Sent when any error occurs during processing
+   - Includes:
+     * Error title and message
+     * Upload ID (if available)
+     * Error details (stage, file paths, etc.)
+     * Stack trace for debugging
+     * Timestamp
+
+TESTING
+-------
+To test your email configuration, run:
+
+python3 utils/email_notifier.py
+
+This will send a test email to verify your settings are correct.
+
+DISABLING NOTIFICATIONS
+-----------------------
+To temporarily disable email notifications, set:
+EMAIL_NOTIFICATIONS_ENABLED=false
+
+TROUBLESHOOTING
+---------------
+If emails are not being sent:
+
+1. Check your .env file has all required variables
+2. Verify SMTP credentials are correct
+3. For Gmail, ensure you're using an App Password, not your regular password
+4. Check spam/junk folder for test emails
+5. Look at server logs for email error messages
+6. Ensure your email provider allows SMTP access
+
+SECURITY NOTES
+--------------
+- Never commit your .env file to git
+- Use App Passwords instead of regular passwords
+- Keep your SMTP credentials secure
+- Consider using environment variables in production

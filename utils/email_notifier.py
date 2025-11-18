@@ -102,6 +102,54 @@ class EmailNotifier:
             print(f"❌ Failed to send error notification: {str(e)}")
             return False
 
+    def send_success_notification(
+        self,
+        upload_id: str,
+        results: Dict[str, Any]
+    ) -> bool:
+        """
+        Send a success notification email when a takeoff is created
+
+        Args:
+            upload_id: Upload ID for the takeoff
+            results: Results dictionary containing detection counts and URLs
+
+        Returns:
+            bool: True if email sent successfully, False otherwise
+        """
+        if not self.enabled:
+            return False
+
+        try:
+            # Create message
+            msg = MIMEMultipart('alternative')
+            msg['Subject'] = f"✅ [AI TakeOff] New Takeoff Created - {upload_id}"
+            msg['From'] = self.smtp_user
+            msg['To'] = self.notification_email
+
+            # Build email body
+            html_body = self._build_success_html_body(upload_id, results)
+            text_body = self._build_success_text_body(upload_id, results)
+
+            # Attach both plain text and HTML versions
+            part1 = MIMEText(text_body, 'plain')
+            part2 = MIMEText(html_body, 'html')
+            msg.attach(part1)
+            msg.attach(part2)
+
+            # Send email
+            with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
+                server.starttls()
+                server.login(self.smtp_user, self.smtp_password)
+                server.send_message(msg)
+
+            print(f"📧 Success notification sent to {self.notification_email}")
+            return True
+
+        except Exception as e:
+            print(f"❌ Failed to send success notification: {str(e)}")
+            return False
+
     def _build_html_body(
         self,
         error_title: str,
@@ -262,6 +310,197 @@ STACK TRACE:
 
         return text
 
+    def _build_success_html_body(self, upload_id: str, results: Dict[str, Any]) -> str:
+        """Build HTML email body for success notification"""
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # Extract data from results
+        step_results = results.get('step_results', {})
+        cloudinary_urls = results.get('cloudinary_urls', {})
+
+        # Calculate totals
+        total_detections = sum(step_results.values())
+
+        html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                body {{
+                    font-family: Arial, sans-serif;
+                    line-height: 1.6;
+                    color: #333;
+                    max-width: 800px;
+                    margin: 0 auto;
+                    padding: 20px;
+                }}
+                .header {{
+                    background-color: #4CAF50;
+                    color: white;
+                    padding: 20px;
+                    border-radius: 5px 5px 0 0;
+                }}
+                .content {{
+                    background-color: #f5f5f5;
+                    padding: 20px;
+                    border-radius: 0 0 5px 5px;
+                }}
+                .section {{
+                    background-color: white;
+                    padding: 15px;
+                    margin: 10px 0;
+                    border-radius: 5px;
+                    border-left: 4px solid #4CAF50;
+                }}
+                .label {{
+                    font-weight: bold;
+                    color: #666;
+                }}
+                .stat-row {{
+                    display: flex;
+                    justify-content: space-between;
+                    padding: 8px 0;
+                    border-bottom: 1px solid #eee;
+                }}
+                .stat-label {{
+                    color: #666;
+                }}
+                .stat-value {{
+                    font-weight: bold;
+                    color: #4CAF50;
+                }}
+                .timestamp {{
+                    color: #fff;
+                    font-size: 0.9em;
+                }}
+                .button {{
+                    display: inline-block;
+                    padding: 10px 20px;
+                    background-color: #4CAF50;
+                    color: white;
+                    text-decoration: none;
+                    border-radius: 5px;
+                    margin: 5px;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h1>✅ New AI TakeOff Created</h1>
+                <p class="timestamp">Timestamp: {timestamp}</p>
+            </div>
+            <div class="content">
+                <div class="section">
+                    <p class="label">Upload ID:</p>
+                    <p><code>{upload_id}</code></p>
+                </div>
+
+                <div class="section">
+                    <p class="label">Detection Results:</p>
+                    <div class="stat-row">
+                        <span class="stat-label">Blue X Shapes:</span>
+                        <span class="stat-value">{step_results.get('step5_blue_X_shapes', 0)}</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Red Squares:</span>
+                        <span class="stat-value">{step_results.get('step6_red_squares', 0)}</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Pink Shapes:</span>
+                        <span class="stat-value">{step_results.get('step7_pink_shapes', 0)}</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Green Rectangles:</span>
+                        <span class="stat-value">{step_results.get('step8_green_rectangles', 0)}</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Orange Rectangles:</span>
+                        <span class="stat-value">{step_results.get('step9_orange_rectangles', 0)}</span>
+                    </div>
+                    <div class="stat-row" style="border-top: 2px solid #4CAF50; margin-top: 10px; padding-top: 10px;">
+                        <span class="stat-label"><strong>Total Detections:</strong></span>
+                        <span class="stat-value" style="font-size: 1.2em;">{total_detections}</span>
+                    </div>
+                </div>
+        """
+
+        # Add result URLs if available
+        if cloudinary_urls:
+            html += """
+                <div class="section">
+                    <p class="label">Result Images:</p>
+            """
+            for key, url in cloudinary_urls.items():
+                if url:
+                    html += f'<a href="{url}" class="button">View {key.replace("_", " ").title()}</a>'
+            html += """
+                </div>
+            """
+
+        # Add tracking URL if available
+        if results.get('tracking_url'):
+            tracking_url = results['tracking_url']
+            html += f"""
+                <div class="section">
+                    <p class="label">View Full Report:</p>
+                    <a href="{tracking_url}" class="button">Open Report</a>
+                </div>
+            """
+
+        html += """
+            </div>
+        </body>
+        </html>
+        """
+
+        return html
+
+    def _build_success_text_body(self, upload_id: str, results: Dict[str, Any]) -> str:
+        """Build plain text email body for success notification"""
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # Extract data from results
+        step_results = results.get('step_results', {})
+        cloudinary_urls = results.get('cloudinary_urls', {})
+
+        # Calculate totals
+        total_detections = sum(step_results.values())
+
+        text = f"""
+✅ New AI TakeOff Created Successfully
+{'=' * 60}
+
+Timestamp: {timestamp}
+
+UPLOAD ID:
+{upload_id}
+
+DETECTION RESULTS:
+--------------------------------------------------
+Blue X Shapes:          {step_results.get('step5_blue_X_shapes', 0)}
+Red Squares:            {step_results.get('step6_red_squares', 0)}
+Pink Shapes:            {step_results.get('step7_pink_shapes', 0)}
+Green Rectangles:       {step_results.get('step8_green_rectangles', 0)}
+Orange Rectangles:      {step_results.get('step9_orange_rectangles', 0)}
+--------------------------------------------------
+TOTAL DETECTIONS:       {total_detections}
+"""
+
+        # Add result URLs if available
+        if cloudinary_urls:
+            text += "\n\nRESULT IMAGES:\n"
+            for key, url in cloudinary_urls.items():
+                if url:
+                    text += f"  {key.replace('_', ' ').title()}: {url}\n"
+
+        # Add tracking URL if available
+        if results.get('tracking_url'):
+            text += f"\n\nFULL REPORT:\n{results['tracking_url']}\n"
+
+        text += f"\n{'=' * 60}\n"
+
+        return text
+
 
 # Global email notifier instance
 _email_notifier: Optional[EmailNotifier] = None
@@ -310,6 +549,24 @@ def notify_error(
         stack_trace=stack_trace,
         upload_id=upload_id
     )
+
+
+def notify_success(
+    upload_id: str,
+    results: Dict[str, Any]
+) -> bool:
+    """
+    Convenience function to send success notification
+
+    Args:
+        upload_id: Upload ID for the takeoff
+        results: Results dictionary containing detection counts and URLs
+
+    Returns:
+        bool: True if notification sent successfully
+    """
+    notifier = get_email_notifier()
+    return notifier.send_success_notification(upload_id, results)
 
 
 if __name__ == "__main__":
