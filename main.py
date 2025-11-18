@@ -623,14 +623,10 @@ async def process_ai_takeoff_sync(upload_id: str):
                         print(f"🚨 Error Details: {error_details}")
                         print(f"🚨 Steps completed before failure: {failed_step}")
 
-                        # Get captured logs for error notification
-                        log_data = get_log_storage().get_log(upload_id)
-                        error_logs = log_data['logs'] if log_data else None
-
-                        # Send email notification with logs
+                        # Send email notification without logs (keep email lightweight)
                         notify_error(
                             error_title=f"Pipeline Failed at {failed_step}",
-                            error_message=f"{error_details}\n\nConsole Logs:\n{error_logs}" if error_logs else error_details,
+                            error_message=error_details,
                             error_details={
                                 "upload_id": upload_id,
                                 "failed_step": failed_step,
@@ -765,7 +761,8 @@ async def process_ai_takeoff_sync(upload_id: str):
         await log_to_client(upload_id, f"📧 Sending success notification email...")
         try:
             log_data = get_log_storage().get_log(upload_id)
-            success_logs = log_data['logs'] if log_data else None
+            # Don't include logs in email to keep it lightweight and fast
+            success_logs = None  # Removed to reduce email size
             success_duration = log_data['duration'] if log_data else None
 
             # Use data_results if available, otherwise create a minimal results dict
