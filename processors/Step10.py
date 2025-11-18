@@ -279,6 +279,38 @@ def convert_svg_to_png(svg_path, png_path):
         traceback.print_exc()
         return False
 
+def update_data_json_with_counts(green_count, pink_count, x_count, red_count, orange_count, yellow_count):
+    """Update data.json with current step results"""
+    try:
+        base_dir = Path(__file__).parent.parent
+        data_file = base_dir / "data.json"
+
+        # Load existing data.json
+        if data_file.exists():
+            with open(data_file, 'r') as f:
+                data = json.load(f)
+        else:
+            data = {}
+
+        # Update step_results
+        data["step_results"] = {
+            "step5_blue_X_shapes": x_count,
+            "step6_red_squares": red_count,
+            "step7_pink_shapes": pink_count,
+            "step8_green_rectangles": green_count,
+            "step9_orange_rectangles": orange_count,
+            "step11_yellow_shapes": yellow_count
+        }
+
+        # Write back to data.json
+        with open(data_file, 'w') as f:
+            json.dump(data, f, indent=4)
+
+        return True
+    except Exception as e:
+        print(f"⚠️  Error updating data.json: {e}")
+        return False
+
 def run_step10():
     """Main function to process Step 10"""
     # Define file paths
@@ -334,6 +366,16 @@ def run_step10():
 
     # Print only the table
     print_drawn_objects(green_rectangles, pink_rectangles, filtered_x_shapes, red_squares, orange_rectangles, yellow_rectangles)
+
+    # Update data.json with counts
+    update_data_json_with_counts(
+        len(green_rectangles),
+        len(pink_rectangles),
+        len(filtered_x_shapes),
+        len(red_squares),
+        len(orange_rectangles),
+        len(yellow_rectangles)
+    )
 
     # Process SVG silently
     svg_content = read_svg_file(step2_svg_path)

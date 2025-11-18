@@ -105,7 +105,9 @@ class EmailNotifier:
     def send_success_notification(
         self,
         upload_id: str,
-        results: Dict[str, Any]
+        results: Dict[str, Any],
+        logs: Optional[str] = None,
+        duration: Optional[float] = None
     ) -> bool:
         """
         Send a success notification email when a takeoff is created
@@ -113,6 +115,8 @@ class EmailNotifier:
         Args:
             upload_id: Upload ID for the takeoff
             results: Results dictionary containing detection counts and URLs
+            logs: Console logs from the processing (optional)
+            duration: Processing duration in seconds (optional)
 
         Returns:
             bool: True if email sent successfully, False otherwise
@@ -128,8 +132,8 @@ class EmailNotifier:
             msg['To'] = self.notification_email
 
             # Build email body
-            html_body = self._build_success_html_body(upload_id, results)
-            text_body = self._build_success_text_body(upload_id, results)
+            html_body = self._build_success_html_body(upload_id, results, logs, duration)
+            text_body = self._build_success_text_body(upload_id, results, logs, duration)
 
             # Attach both plain text and HTML versions
             part1 = MIMEText(text_body, 'plain')
@@ -310,7 +314,7 @@ STACK TRACE:
 
         return text
 
-    def _build_success_html_body(self, upload_id: str, results: Dict[str, Any]) -> str:
+    def _build_success_html_body(self, upload_id: str, results: Dict[str, Any], logs: Optional[str] = None, duration: Optional[float] = None) -> str:
         """Build HTML email body for success notification"""
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -393,6 +397,7 @@ STACK TRACE:
                 <div class="section">
                     <p class="label">Upload ID:</p>
                     <p><code>{upload_id}</code></p>
+                    {f'<p class="label">Processing Duration:</p><p>{duration:.2f} seconds</p>' if duration else ''}
                 </div>
 
                 <div class="section">
@@ -447,6 +452,18 @@ STACK TRACE:
                 </div>
             """
 
+        # Add console logs if available
+        if logs:
+            # Escape HTML characters and preserve formatting
+            import html as html_module
+            escaped_logs = html_module.escape(logs)
+            html += f"""
+                <div class="section">
+                    <p class="label">Console Logs:</p>
+                    <div class="code" style="max-height: 500px; overflow-y: auto; font-size: 12px;">{escaped_logs}</div>
+                </div>
+            """
+
         html += """
             </div>
         </body>
@@ -455,7 +472,7 @@ STACK TRACE:
 
         return html
 
-    def _build_success_text_body(self, upload_id: str, results: Dict[str, Any]) -> str:
+    def _build_success_text_body(self, upload_id: str, results: Dict[str, Any], logs: Optional[str] = None, duration: Optional[float] = None) -> str:
         """Build plain text email body for success notification"""
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -474,7 +491,12 @@ Timestamp: {timestamp}
 
 UPLOAD ID:
 {upload_id}
+"""
 
+        if duration:
+            text += f"\nPROCESSING DURATION:\n{duration:.2f} seconds\n"
+
+        text += """
 DETECTION RESULTS:
 --------------------------------------------------
 Blue X Shapes:          {step_results.get('step5_blue_X_shapes', 0)}
@@ -496,6 +518,10 @@ TOTAL DETECTIONS:       {total_detections}
         # Add tracking URL if available
         if results.get('tracking_url'):
             text += f"\n\nFULL REPORT:\n{results['tracking_url']}\n"
+
+        # Add console logs if available
+        if logs:
+            text += f"\n\nCONSOLE LOGS:\n{'=' * 60}\n{logs}\n{'=' * 60}\n"
 
         text += f"\n{'=' * 60}\n"
 
@@ -553,7 +579,9 @@ def notify_error(
 
 def notify_success(
     upload_id: str,
-    results: Dict[str, Any]
+    results: Dict[str, Any],
+    logs: Optional[str] = None,
+    duration: Optional[float] = None
 ) -> bool:
     """
     Convenience function to send success notification
@@ -561,12 +589,14 @@ def notify_success(
     Args:
         upload_id: Upload ID for the takeoff
         results: Results dictionary containing detection counts and URLs
+        logs: Console logs from the processing (optional)
+        duration: Processing duration in seconds (optional)
 
     Returns:
         bool: True if notification sent successfully
     """
     notifier = get_email_notifier()
-    return notifier.send_success_notification(upload_id, results)
+    return notifier.send_success_notification(upload_id, results, logs, duration)
 
 
 if __name__ == "__main__":

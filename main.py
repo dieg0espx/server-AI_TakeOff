@@ -34,6 +34,9 @@ from api.cloudinary_manager import get_cloudinary_manager
 # Import the email notifier
 from utils.email_notifier import notify_error, notify_success
 
+# Import log capture
+from utils.log_capture import LogCapture, get_log_storage
+
 
 
 # Create FastAPI instance
@@ -585,10 +588,19 @@ async def process_ai_takeoff_sync(upload_id: str):
                 else:
                     await log_to_client(upload_id, f"⚠️  Failed to upload original PNG to Cloudinary", "warning")
                 
-                # Start the processing pipeline
+                # Start the processing pipeline with log capture
                 await log_to_client(upload_id, f"🚀 Starting AI processing pipeline...")
+
+                # Capture all console logs during pipeline execution
+                log_capture = LogCapture()
                 try:
-                    pipeline_success, failed_step, error_details = run_pipeline_with_logging(upload_id)
+                    with log_capture:
+                        pipeline_success, failed_step, error_details = run_pipeline_with_logging(upload_id)
+
+                    # Store the captured logs
+                    captured_logs = log_capture.get_logs()
+                    processing_duration = log_capture.get_duration()
+                    get_log_storage().store_log(upload_id, captured_logs, processing_duration)
                     if pipeline_success:
                         await log_to_client(upload_id, f"✅ Processing pipeline completed successfully")
                     else:
@@ -599,10 +611,14 @@ async def process_ai_takeoff_sync(upload_id: str):
                         print(f"🚨 Error Details: {error_details}")
                         print(f"🚨 Steps completed before failure: {failed_step}")
 
-                        # Send email notification
+                        # Get captured logs for error notification
+                        log_data = get_log_storage().get_log(upload_id)
+                        error_logs = log_data['logs'] if log_data else None
+
+                        # Send email notification with logs
                         notify_error(
                             error_title=f"Pipeline Failed at {failed_step}",
-                            error_message=error_details,
+                            error_message=f"{error_details}\n\nConsole Logs:\n{error_logs}" if error_logs else error_details,
                             error_details={
                                 "upload_id": upload_id,
                                 "failed_step": failed_step,
@@ -721,9 +737,15 @@ async def process_ai_takeoff_sync(upload_id: str):
                     elif 'step8_results' in cloudinary_urls:
                         result_url = cloudinary_urls['step8_results']
 
-                # Send success notification email
+                # Send success notification email with logs
                 await log_to_client(upload_id, f"📧 Sending success notification email...")
-                notify_success(upload_id, data_results)
+                log_data = get_log_storage().get_log(upload_id)
+                success_logs = log_data['logs'] if log_data else None
+                success_duration = log_data['duration'] if log_data else None
+                notify_success(upload_id, data_results, success_logs, success_duration)
+
+                # Clear logs from storage after sending email
+                get_log_storage().clear_log(upload_id)
 
                 # Return just the result URL
                 result = result_url

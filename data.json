@@ -1,9 +1,11 @@
 {
     "step_results": {
-        "step5_blue_X_shapes": 117,
-        "step6_red_squares": 120,
-        "step8_green_rectangles": 106,
-        "step9_orange_rectangles": 4
+        "step5_blue_X_shapes": 0,
+        "step6_red_squares": 133,
+        "step7_pink_shapes": 14,
+        "step8_green_rectangles": 97,
+        "step9_orange_rectangles": 19,
+        "step11_yellow_shapes": 0
     },
     "cloudinary_urls": {
         "step4_results": "https://res.cloudinary.com/dvord9edi/image/upload/v1763449887/final_AI_TakeOff/final_AI_TakeOff/step4_results.png",
