@@ -588,6 +588,18 @@ async def process_ai_takeoff_sync(upload_id: str):
                 else:
                     await log_to_client(upload_id, f"⚠️  Failed to upload original PNG to Cloudinary", "warning")
                 
+                # Extract text from PDF BEFORE starting the pipeline
+                await log_to_client(upload_id, f"📄 Extracting text from PDF...")
+                try:
+                    extracted_text = extract_text_from_pdf(file_path)
+                    if extracted_text:
+                        await log_to_client(upload_id, f"✅ Text extracted successfully ({len(extracted_text)} characters)")
+                    else:
+                        await log_to_client(upload_id, f"⚠️  No text extracted from PDF", "warning")
+                except Exception as text_error:
+                    await log_to_client(upload_id, f"⚠️  Text extraction failed: {text_error}", "warning")
+                    print(f"Warning: Text extraction failed: {text_error}")
+
                 # Start the processing pipeline with log capture
                 await log_to_client(upload_id, f"🚀 Starting AI processing pipeline...")
 
