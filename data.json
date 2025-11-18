@@ -1,19 +1,18 @@
 {
     "step_results": {
-        "step5_blue_X_shapes": 204,
-        "step6_red_squares": 196,
-        "step7_pink_shapes": 43,
-        "step8_green_rectangles": 197,
-        "step9_orange_rectangles": 11
+        "step5_blue_X_shapes": 117,
+        "step6_red_squares": 120,
+        "step8_green_rectangles": 106,
+        "step9_orange_rectangles": 4
     },
     "cloudinary_urls": {
-        "step4_results": "https://res.cloudinary.com/dvord9edi/image/upload/v1762206702/final_AI_TakeOff/final_AI_TakeOff/step4_results.png",
-        "step5_results": "https://res.cloudinary.com/dvord9edi/image/upload/v1762206703/final_AI_TakeOff/final_AI_TakeOff/step5_results.png",
-        "step6_results": "https://res.cloudinary.com/dvord9edi/image/upload/v1762206704/final_AI_TakeOff/final_AI_TakeOff/step6_results.png",
-        "step7_results": "https://res.cloudinary.com/dvord9edi/image/upload/v1762206705/final_AI_TakeOff/final_AI_TakeOff/step7_results.png",
-        "step8_results": "https://res.cloudinary.com/dvord9edi/image/upload/v1762206706/final_AI_TakeOff/final_AI_TakeOff/step8_results.png",
-        "step9_results": "https://res.cloudinary.com/dvord9edi/image/upload/v1762206707/final_AI_TakeOff/final_AI_TakeOff/step9_results.png",
-        "step10_results": "https://res.cloudinary.com/dvord9edi/image/upload/v1762206708/final_AI_TakeOff/final_AI_TakeOff/step10_results.png"
+        "step4_results": "https://res.cloudinary.com/dvord9edi/image/upload/v1763449887/final_AI_TakeOff/final_AI_TakeOff/step4_results.png",
+        "step5_results": "https://res.cloudinary.com/dvord9edi/image/upload/v1763449888/final_AI_TakeOff/final_AI_TakeOff/step5_results.png",
+        "step6_results": "https://res.cloudinary.com/dvord9edi/image/upload/v1763449889/final_AI_TakeOff/final_AI_TakeOff/step6_results.png",
+        "step7_results": "https://res.cloudinary.com/dvord9edi/image/upload/v1763449890/final_AI_TakeOff/final_AI_TakeOff/step7_results.png",
+        "step8_results": "https://res.cloudinary.com/dvord9edi/image/upload/v1763449891/final_AI_TakeOff/final_AI_TakeOff/step8_results.png",
+        "step9_results": "https://res.cloudinary.com/dvord9edi/image/upload/v1763449892/final_AI_TakeOff/final_AI_TakeOff/step9_results.png",
+        "step10_results": "https://res.cloudinary.com/dvord9edi/image/upload/v1763449894/final_AI_TakeOff/final_AI_TakeOff/step10_results.png"
     },
     "upload_id": "1yr-Et0I9awenxaCnCtKotqqGkiUr1E2L",
     "tracking_url": "AuAkZYQYJE9q",

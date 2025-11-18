@@ -683,10 +683,10 @@ def run_step7():
             count = len(shapes_data)
             print(f"\nCount after splitting: {count} pink shapes")
 
-        # Filter shapes by size (±10 pixels from average)
+        # Filter shapes by size (±15 pixels from average)
         if shapes_data:
             print(f"\nApplying size filtering...")
-            shapes_data = filter_shapes_by_size(shapes_data, tolerance=10)
+            shapes_data = filter_shapes_by_size(shapes_data, tolerance=15)
             count = len(shapes_data)
             print(f"\nFinal count after filtering: {count} pink shapes")
 
@@ -739,10 +739,10 @@ if __name__ == "__main__":
             count = len(shapes_data)
             print(f"\nCount after splitting: {count} pink shapes")
 
-        # Filter shapes by size (±10 pixels from average)
+        # Filter shapes by size (±15 pixels from average)
         if shapes_data:
             print(f"\nApplying size filtering...")
-            shapes_data = filter_shapes_by_size(shapes_data, tolerance=10)
+            shapes_data = filter_shapes_by_size(shapes_data, tolerance=15)
             count = len(shapes_data)
             print(f"\nFinal count after filtering: {count} pink shapes")
 
