@@ -257,13 +257,13 @@ def run_pipeline_with_logging(upload_id: str):
             # Read counts from individual JSON files created by each step
             # Each step creates a JSON file with a specific structure
             json_files = {
-                'x-shores.json': ('step5_blue_X_shapes', 'total_x_shapes'),
-                'square-shores.json': ('step6_red_squares', 'total_red_squares'),
-                'pinkFrames.json': ('step7_pink_shapes', 'total_pink_shapes'),
-                'greenFrames.json': ('step8_green_rectangles', 'total_rectangles'),
-                'orangeFrames.json': ('step9_orange_rectangles', 'total_rectangles')
+                'files/tempData/x-shores.json': ('step5_blue_X_shapes', 'total_x_shapes'),
+                'files/tempData/square-shores.json': ('step6_red_squares', 'total_red_squares'),
+                'files/tempData/pinkFrames.json': ('step7_pink_shapes', 'total_pink_shapes'),
+                'files/tempData/greenFrames.json': ('step8_green_rectangles', 'total_rectangles'),
+                'files/tempData/orangeFrames.json': ('step9_orange_rectangles', 'total_rectangles')
             }
-            
+
             for json_file, (result_key, json_field) in json_files.items():
                 if os.path.exists(json_file):
                     try:
