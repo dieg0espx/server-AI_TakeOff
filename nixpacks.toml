@@ -1,0 +1,27 @@
+[phases.setup]
+aptPkgs = [
+    "build-essential",
+    "gcc",
+    "g++",
+    "poppler-utils",
+    "tesseract-ocr",
+    "tesseract-ocr-eng",
+    "libcairo2",
+    "libcairo2-dev",
+    "libpango-1.0-0",
+    "libpangocairo-1.0-0",
+    "libgdk-pixbuf-2.0-0",
+    "libffi-dev",
+    "shared-mime-info",
+    "libglib2.0-0",
+    "libsm6",
+    "libxext6",
+    "libxrender1",
+    "libgomp1",
+    "libgl1",
+    "libglib2.0-dev",
+    "pkg-config"
+]
+
+[start]
+cmd = "python main.py"
