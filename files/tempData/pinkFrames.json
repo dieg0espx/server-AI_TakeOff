@@ -1,175 +1,145 @@
 {
-  "total_pink_shapes": 17,
+  "total_pink_shapes": 14,
   "pink_shapes": [
     {
       "id": 1,
-      "x": 2076.0,
-      "y": 779.0,
-      "width": 72.0,
-      "height": 59.0,
+      "x": 856.0,
+      "y": 1624.0,
+      "width": 61.0,
+      "height": 73.0,
       "contours_count": 1,
-      "center_x": 2112.0,
-      "center_y": 808.5
+      "center_x": 886.5,
+      "center_y": 1660.5
     },
     {
       "id": 2,
-      "x": 977.0,
-      "y": 1095.0,
-      "width": 57.0,
-      "height": 57.0,
+      "x": 1781.0,
+      "y": 1780.0,
+      "width": 73.0,
+      "height": 61.0,
       "contours_count": 1,
-      "center_x": 1005.5,
-      "center_y": 1123.5
+      "center_x": 1817.5,
+      "center_y": 1810.5
     },
     {
       "id": 3,
-      "x": 886.0,
-      "y": 1095.0,
-      "width": 57.0,
-      "height": 57.0,
+      "x": 930.0,
+      "y": 1537.0,
+      "width": 61.0,
+      "height": 72.0,
       "contours_count": 1,
-      "center_x": 914.5,
-      "center_y": 1123.5
+      "center_x": 960.5,
+      "center_y": 1573.0
     },
     {
       "id": 4,
-      "x": 790.0,
-      "y": 1095.0,
-      "width": 57.0,
-      "height": 57.0,
+      "x": 1353.0,
+      "y": 1338.0,
+      "width": 61.0,
+      "height": 72.0,
       "contours_count": 1,
-      "center_x": 818.5,
-      "center_y": 1123.5
+      "center_x": 1383.5,
+      "center_y": 1374.0
     },
     {
       "id": 5,
-      "x": 700.0,
-      "y": 1095.0,
-      "width": 57.0,
-      "height": 57.0,
+      "x": 1622.0,
+      "y": 1336.0,
+      "width": 61.0,
+      "height": 72.0,
       "contours_count": 1,
-      "center_x": 728.5,
-      "center_y": 1123.5
+      "center_x": 1652.5,
+      "center_y": 1372.0
     },
     {
       "id": 6,
-      "x": 595.0,
-      "y": 1079.0,
-      "width": 57.0,
-      "height": 57.0,
+      "x": 1622.0,
+      "y": 1241.0,
+      "width": 61.0,
+      "height": 72.0,
       "contours_count": 1,
-      "center_x": 623.5,
-      "center_y": 1107.5
+      "center_x": 1652.5,
+      "center_y": 1277.0
     },
     {
       "id": 7,
-      "x": 483.0,
-      "y": 1079.0,
-      "width": 57.0,
-      "height": 57.0,
+      "x": 1227.0,
+      "y": 899.0,
+      "width": 61.0,
+      "height": 72.0,
       "contours_count": 1,
-      "center_x": 511.5,
-      "center_y": 1107.5
+      "center_x": 1257.5,
+      "center_y": 935.0
     },
     {
       "id": 8,
-      "x": 378.0,
-      "y": 1079.0,
-      "width": 57.0,
-      "height": 57.0,
+      "x": 911.0,
+      "y": 518.0,
+      "width": 60.0,
+      "height": 73.0,
       "contours_count": 1,
-      "center_x": 406.5,
-      "center_y": 1107.5
+      "center_x": 941.0,
+      "center_y": 554.5
     },
     {
       "id": 9,
-      "x": 2435.0,
-      "y": 871.0,
-      "width": 57.0,
-      "height": 57.0,
+      "x": 1771.0,
+      "y": 1710.0,
+      "width": 73.0,
+      "height": 60.0,
       "contours_count": 1,
-      "center_x": 2463.5,
-      "center_y": 899.5
+      "center_x": 1807.5,
+      "center_y": 1740.0
     },
     {
       "id": 10,
-      "x": 2512.0,
-      "y": 870.0,
-      "width": 57.0,
-      "height": 57.0,
+      "x": 693.0,
+      "y": 1755.0,
+      "width": 60.0,
+      "height": 72.0,
       "contours_count": 1,
-      "center_x": 2540.5,
-      "center_y": 898.5
+      "center_x": 723.0,
+      "center_y": 1791.0
     },
     {
       "id": 11,
-      "x": 2338.0,
-      "y": 870.0,
-      "width": 57.0,
-      "height": 57.0,
+      "x": 1351.0,
+      "y": 1487.0,
+      "width": 60.0,
+      "height": 72.0,
       "contours_count": 1,
-      "center_x": 2366.5,
-      "center_y": 898.5
+      "center_x": 1381.0,
+      "center_y": 1523.0
     },
     {
       "id": 12,
-      "x": 2122.0,
-      "y": 870.0,
-      "width": 57.0,
-      "height": 57.0,
+      "x": 1375.0,
+      "y": 779.0,
+      "width": 60.0,
+      "height": 72.0,
       "contours_count": 1,
-      "center_x": 2150.5,
-      "center_y": 898.5
+      "center_x": 1405.0,
+      "center_y": 815.0
     },
     {
       "id": 13,
-      "x": 2242.0,
-      "y": 870.0,
-      "width": 57.0,
-      "height": 57.0,
+      "x": 1305.0,
+      "y": 779.0,
+      "width": 60.0,
+      "height": 72.0,
       "contours_count": 1,
-      "center_x": 2270.5,
-      "center_y": 898.5
+      "center_x": 1335.0,
+      "center_y": 815.0
     },
     {
       "id": 14,
-      "x": 1248.0,
-      "y": 1048.0,
-      "width": 57.0,
-      "height": 56.0,
+      "x": 1913.0,
+      "y": 679.0,
+      "width": 72.0,
+      "height": 60.0,
       "contours_count": 1,
-      "center_x": 1276.5,
-      "center_y": 1076.0
-    },
-    {
-      "id": 15,
-      "x": 1154.0,
-      "y": 1048.0,
-      "width": 57.0,
-      "height": 56.0,
-      "contours_count": 1,
-      "center_x": 1182.5,
-      "center_y": 1076.0
-    },
-    {
-      "id": 16,
-      "x": 1058.0,
-      "y": 1048.0,
-      "width": 57.0,
-      "height": 56.0,
-      "contours_count": 1,
-      "center_x": 1086.5,
-      "center_y": 1076.0
-    },
-    {
-      "id": 17,
-      "x": 1420.0,
-      "y": 1002.0,
-      "width": 56.0,
-      "height": 57.0,
-      "contours_count": 1,
-      "center_x": 1448.0,
-      "center_y": 1030.5
+      "center_x": 1949.0,
+      "center_y": 709.0
     }
   ],
   "detection_method": "OpenCV contour detection",
