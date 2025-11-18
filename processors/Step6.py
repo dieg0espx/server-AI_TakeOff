@@ -46,24 +46,99 @@ def save_red_squares_to_json(red_squares_data, output_path):
         print(f"Error saving red squares data to JSON: {e}")
         return False
 
+def split_elongated_squares(squares_data, aspect_ratio_threshold=2.0):
+    """Split squares that are too elongated (likely 2 or more stacked) into separate squares"""
+    new_squares = []
+    split_count = 0
+
+    for square in squares_data:
+        width = square['width']
+        height = square['height']
+        aspect_ratio = max(width, height) / min(width, height) if min(width, height) > 0 else 1
+
+        # If aspect ratio is too high, split the rectangle
+        if aspect_ratio >= aspect_ratio_threshold:
+            split_count += 1
+            x = square['x']
+            y = square['y']
+
+            # Determine how many squares to split into
+            num_splits = round(aspect_ratio)
+
+            # Determine if it's horizontal or vertical
+            if width > height:
+                # Split horizontally into multiple squares
+                new_width = width / num_splits
+
+                for i in range(num_splits):
+                    square_split = {
+                        'x': x + (i * new_width),
+                        'y': y,
+                        'width': new_width,
+                        'height': height,
+                        'center_x': x + (i * new_width) + new_width / 2,
+                        'center_y': y + height / 2,
+                        'area': new_width * height,
+                        'split_from': square['id']
+                    }
+                    new_squares.append(square_split)
+
+                print(f"  Split square {square['id']} (horizontal {width:.1f}x{height:.1f}) into {num_splits} squares")
+            else:
+                # Split vertically into multiple squares
+                new_height = height / num_splits
+
+                for i in range(num_splits):
+                    square_split = {
+                        'x': x,
+                        'y': y + (i * new_height),
+                        'width': width,
+                        'height': new_height,
+                        'center_x': x + width / 2,
+                        'center_y': y + (i * new_height) + new_height / 2,
+                        'area': width * new_height,
+                        'split_from': square['id']
+                    }
+                    new_squares.append(square_split)
+
+                print(f"  Split square {square['id']} (vertical {width:.1f}x{height:.1f}) into {num_splits} squares")
+        else:
+            # Keep the original square
+            new_squares.append(square)
+
+    # Re-number all squares
+    for i, square in enumerate(new_squares):
+        square['id'] = i + 1
+        # Remove split_from if it exists and update contours_count if not present
+        if 'split_from' in square:
+            square.pop('split_from', None)
+        if 'contours_count' not in square:
+            square['contours_count'] = 1
+
+    if split_count > 0:
+        print(f"\n✓ Split {split_count} elongated squares into {len(new_squares) - len(squares_data) + split_count} new squares")
+        print(f"  Total squares after splitting: {len(new_squares)}")
+
+    return new_squares
+
 def svg_to_image(svg_path, output_path=None):
     """Convert SVG to PIL Image"""
     try:
         # Convert SVG to PNG bytes
         png_data = cairosvg.svg2png(url=svg_path)
-        
+
         # Convert to PIL Image
         image = Image.open(io.BytesIO(png_data))
-        
+
         if output_path:
             # Save as PNG if output path is provided
             image.save(output_path, 'PNG')
-            
+
             print(f"SVG converted and saved as: {output_path}")
-        
+
         return image
     except Exception as e:
-        
+
         print(f"Error converting SVG to image: {e}", "error")
         return None
 
@@ -302,20 +377,25 @@ def detect_red_squares(image_path, output_path='results.png', json_output_path=N
     # Save result image
     cv2.imwrite(output_path, result_img)
     print(f"Result saved as: {output_path}")
-    
+
+    print(f"Total squares detected: {len(valid_contours)}")
+
+    # Split elongated squares before saving
+    if red_squares_data:
+        print(f"\nChecking for elongated squares to split...")
+        red_squares_data = split_elongated_squares(red_squares_data, aspect_ratio_threshold=2.0)
+
     # Save red squares data to JSON if path provided
     if json_output_path:
         save_red_squares_to_json(red_squares_data, json_output_path)
-    
-    print(f"Total squares detected: {len(valid_contours)}")
-    
+
     # Delete the debug mask file after processing
     debug_mask_path = output_path.replace('.png', '_mask.png')
     if os.path.exists(debug_mask_path):
         os.remove(debug_mask_path)
         print(f"Debug mask deleted: {debug_mask_path}")
-    
-    return len(valid_contours), red_squares_data
+
+    return len(red_squares_data), red_squares_data
 
 def process_svg_colors():
     # Get the current working directory to determine the correct paths
