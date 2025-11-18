@@ -1,6 +1,27 @@
 {
-  "total_rectangles": 0,
-  "rectangles": [],
+  "total_rectangles": 2,
+  "rectangles": [
+    {
+      "id": 1,
+      "x": 825.0,
+      "y": 826.0,
+      "width": 99.0,
+      "height": 63.0,
+      "contours_count": 1,
+      "center_x": 874.5,
+      "center_y": 857.5
+    },
+    {
+      "id": 2,
+      "x": 825.0,
+      "y": 711.0,
+      "width": 99.0,
+      "height": 63.0,
+      "contours_count": 1,
+      "center_x": 874.5,
+      "center_y": 742.5
+    }
+  ],
   "metadata": {
     "description": "Orange rectangle detection results",
     "format": "x, y coordinates (top-left corner), width, height, center coordinates"
