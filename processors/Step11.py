@@ -1,214 +1,495 @@
 #!/usr/bin/env python3
 """
-Step 11: Extract Text from Original PDF and Rewrite Professionally
-Extracts text from the original.pdf using OCR and uses OpenAI to rewrite it professionally
+Contour-based Object Detection for Yellow Traffic Light Shapes
+Uses OpenCV contour detection to find individual yellow traffic light rectangles
 """
 
+import re
+import math
 import os
+import cv2
+import numpy as np
+from pathlib import Path
+import argparse
+import cairosvg
+import io
+from PIL import Image
 import sys
 import json
-from pathlib import Path
-from dotenv import load_dotenv
-
-# Load environment variables
-load_dotenv()
-
-# Add parent directory to path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from api.pdf_text_extractor import extract_text_from_pdf
 
-def rewrite_text_with_openai(extracted_text: str) -> str:
-    """
-    Use OpenAI API to rewrite the extracted text professionally for scaffolding drawings
-    
-    Args:
-        extracted_text: Raw OCR text from the PDF
-        
-    Returns:
-        Professionally rewritten text or original text if API call fails
-    """
+def svg_to_image(svg_path, output_path=None):
+    """Convert SVG to PIL Image"""
     try:
-        from openai import OpenAI
+        # Convert SVG to PNG bytes
+        png_data = cairosvg.svg2png(url=svg_path)
         
-        # Get API key from environment
-        api_key = os.getenv('OPENAI_API_KEY')
-        if not api_key:
-            print("⚠️  OPENAI_API_KEY not found in environment variables")
-            print("   Skipping OpenAI rewriting, using extracted text as-is")
-            return extracted_text
+        # Convert to PIL Image
+        image = Image.open(io.BytesIO(png_data))
         
-        print("\n🤖 Rewriting text with OpenAI API...")
+        if output_path:
+            # Save as PNG if output path is provided
+            image.save(output_path, 'PNG')
+            
+            print(f"SVG converted and saved as: {output_path}")
         
-        # Initialize OpenAI client
-        client = OpenAI(api_key=api_key)
-        
-        # Create the prompt for professional rewriting
-        prompt = f"""You are a professional construction documentation specialist. The text below was extracted from a scaffolding/shoring construction drawing using OCR and contains many errors, inconsistent formatting, and poor readability.
-
-Your task: Rewrite this into a clean, professional, well-structured document that:
-1. Fixes all OCR errors and typos
-2. Organizes information into clear sections with headers
-3. Standardizes measurements and technical terms
-4. Removes gibberish and maintains only meaningful content
-5. Uses proper construction industry terminology
-6. Formats lists, specifications, and notes properly
-7. Makes it easy to read and professional
-
-RAW OCR TEXT:
-{extracted_text}
-
-REWRITTEN PROFESSIONAL VERSION:"""
-
-        # Call OpenAI API
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {
-                    "role": "system", 
-                    "content": "You are an expert construction technical writer. You transform messy OCR text from construction drawings into clear, professional documentation. Always rewrite and restructure the content - never return the original text unchanged."
-                },
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.4,  # Slightly higher for more creative rewriting
-            max_tokens=3000   # Increased to allow for more detailed output
-        )
-        
-        # Extract the rewritten text
-        rewritten_text = response.choices[0].message.content.strip()
-        
-        # Validate that OpenAI actually rewrote the text (not just returned the same)
-        if rewritten_text == extracted_text or len(rewritten_text) < 50:
-            print("⚠️  OpenAI returned text that appears unchanged or too short")
-            print("   Using extracted text as fallback")
-            return extracted_text
-        
-        print("✅ Text successfully rewritten by OpenAI")
-        print(f"   Original length: {len(extracted_text)} chars")
-        print(f"   Rewritten length: {len(rewritten_text)} chars")
-        return rewritten_text
-        
-    except ImportError:
-        print("⚠️  OpenAI package not installed. Run: pip install openai")
-        print("   Using extracted text as-is")
-        return extracted_text
+        return image
     except Exception as e:
-        print(f"⚠️  Error calling OpenAI API: {e}")
-        print("   Using extracted text as fallback")
-        import traceback
-        traceback.print_exc()
-        return extracted_text
+        
+        print(f"Error converting SVG to image: {e}", "error")
+        return None
 
-def store_text_in_data_json(extracted_text: str, rewritten_text: str, pdf_path: str):
-    """
-    Store both the extracted text and rewritten text in data.json file
+def detect_yellow_shapes(image_path, output_path='results.png'):
+    """Detect individual yellow traffic light shapes using contour detection"""
     
-    Args:
-        extracted_text: Raw OCR text from the PDF
-        rewritten_text: Professionally rewritten text from OpenAI
-        pdf_path: Path to the original PDF file
-    """
-    try:
-        # Read existing data.json if it exists
-        if os.path.exists('data.json'):
-            with open('data.json', 'r') as file:
-                try:
-                    data = json.load(file)
-                except json.JSONDecodeError:
-                    data = {}
-        else:
-            data = {}
+    print(f"Processing image: {image_path}")
+    
+    # Check if input is SVG and convert if needed
+    if str(image_path).lower().endswith('.svg'):
+        print("Converting SVG to image for processing...")
+        pil_image = svg_to_image(image_path)
+        if pil_image is None:
+            return 0, []
         
-        # Update the data with both texts
-        data['extracted_text'] = extracted_text
-        data['rewritten_text'] = rewritten_text
+        # Convert PIL Image to OpenCV format
+        img = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
+    else:
+        # Read image directly if it's not SVG
+        img = cv2.imread(str(image_path))
+    
+    if img is None:
+        print(f"Error: Could not read image {image_path}", "error")
+        return 0, []
+    
+    # Convert to HSV for better color detection
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    
+    # Define yellow color range in HSV for #ffff00 (traffic light yellow)
+    # Yellow in HSV: H=60, S=255, V=255
+    # Adjust range to catch variations
+    lower_yellow = np.array([20, 100, 100])   # Darker yellow/orange-yellow
+    upper_yellow = np.array([65, 255, 255])   # Lighter yellow/green-yellow
+    
+    # Create mask for yellow objects
+    yellow_mask = cv2.inRange(hsv, lower_yellow, upper_yellow)
+    
+    # Apply morphological operations to clean up the mask
+    kernel = np.ones((3,3), np.uint8)
+    yellow_mask = cv2.morphologyEx(yellow_mask, cv2.MORPH_CLOSE, kernel)
+    yellow_mask = cv2.morphologyEx(yellow_mask, cv2.MORPH_OPEN, kernel)
+    
+    # Find contours
+    contours, _ = cv2.findContours(yellow_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    # Filter contours based on area and shape
+    valid_contours = []
+    for contour in contours:
+        area = cv2.contourArea(contour)
         
-        # Write updated data back to data.json
-        with open('data.json', 'w') as file:
-            json.dump(data, file, indent=4)
+        # Filter by area
+        if 50 < area < 10000:  # Broader range to catch all potential rectangles
+            # Get bounding rectangle
+            x, y, w, h = cv2.boundingRect(contour)
+            
+            # Check aspect ratio (rectangles can have various aspect ratios)
+            aspect_ratio = w / h if h > 0 else 0
+            # Allow for rectangular shapes (not too extreme aspect ratios)
+            if 0.2 < aspect_ratio < 5.0:  # Allow rectangles but not extremely thin lines
+                # Additional check: ensure reasonable size
+                if w >= 10 and h >= 10:  # Minimum size requirement
+                    valid_contours.append((contour, x, y, w, h, area))
+    
+    print(f"Found {len(valid_contours)} initial contours")
+    
+    # Group nearby contours to identify individual rectangles
+    if len(valid_contours) > 0:
+        # Sort by area to prioritize larger contours
+        valid_contours.sort(key=lambda x: x[5], reverse=True)
         
-        print(f"✅ Extracted and rewritten text successfully stored in data.json")
-        print(f"   - Original text length: {len(extracted_text)} characters")
-        print(f"   - Rewritten text length: {len(rewritten_text)} characters")
-        print(f"   - PDF file: {pdf_path}")
+        # Group contours that are close to each other
+        grouped_contours = []
+        used_indices = set()
         
-    except Exception as e:
-        print(f"❌ Error storing text in data.json: {str(e)}")
+        for i, (contour, x, y, w, h, area) in enumerate(valid_contours):
+            if i in used_indices:
+                continue
+                
+            # Find contours that are close to this one
+            nearby_contours = [(contour, x, y, w, h, area)]
+            used_indices.add(i)
+            
+            center_x = x + w/2
+            center_y = y + h/2
+            
+            for j, (contour2, x2, y2, w2, h2, area2) in enumerate(valid_contours):
+                if j in used_indices:
+                    continue
+                    
+                center_x2 = x2 + w2/2
+                center_y2 = y2 + h2/2
+                
+                # Calculate distance between centers
+                distance = ((center_x - center_x2)**2 + (center_y - center_y2)**2)**0.5
+                
+                # If contours are very close, group them
+                if distance < 25:  # Adjust based on your rectangle spacing
+                    nearby_contours.append((contour2, x2, y2, w2, h2, area2))
+                    used_indices.add(j)
+            
+            # Calculate combined bounding box for the group
+            if nearby_contours:
+                min_x = min(c[1] for c in nearby_contours)
+                min_y = min(c[2] for c in nearby_contours)
+                max_x = max(c[1] + c[3] for c in nearby_contours)
+                max_y = max(c[2] + c[4] for c in nearby_contours)
+                
+                group_w = max_x - min_x
+                group_h = max_y - min_y
+                
+                # Apply aspect ratio constraint to grouped bounding boxes
+                group_aspect_ratio = group_w / group_h if group_h > 0 else 0
+                if 0.2 < group_aspect_ratio < 5.0:  # Same tolerance as individual contours
+                    grouped_contours.append((nearby_contours, min_x, min_y, group_w, group_h))
+                else:
+                    # If grouped bounding box doesn't meet aspect ratio, treat each contour individually
+                    for contour, x, y, w, h, area in nearby_contours:
+                        grouped_contours.append(([(contour, x, y, w, h, area)], x, y, w, h))
+        
+        valid_contours = grouped_contours
+        print(f"Grouped into {len(valid_contours)} yellow shapes")
+    
+    # Create result image by copying the original image
+    result_img = img.copy()
+    
+    # List to store shape data
+    shapes_data = []
+    
+    # Draw results
+    # Draw contours and bounding boxes
+    for i, (contours_group, x, y, w, h) in enumerate(valid_contours):
+        # Draw all contours in the group in red (#ff0000)
+        for contour, _, _, _, _, _ in contours_group:
+            cv2.drawContours(result_img, [contour], -1, (0, 0, 255), 2)  # Red color (BGR)
+        
+        # Draw bounding box around the group in red (#ff0000)
+        cv2.rectangle(result_img, (int(x), int(y)), (int(x + w), int(y + h)), (0, 0, 255), 2)
+        
+        # Add label in white
+        label = f"{i+1}"
+        cv2.putText(result_img, label, (int(x), int(y)-10), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        
+        # Store shape data
+        shape_info = {
+            "id": i + 1,
+            "x": float(x),
+            "y": float(y),
+            "width": float(w),
+            "height": float(h),
+            "contours_count": len(contours_group),
+            "center_x": float(x + w/2),
+            "center_y": float(y + h/2)
+        }
+        shapes_data.append(shape_info)
+        
+        print(f"{i+1}: Size={w:.1f}x{h:.1f}, Contours={len(contours_group)}")
+    
+    # Save result
+    if output_path.lower().endswith('.svg'):
+        # Convert back to PIL and save as SVG-compatible format
+        result_pil = Image.fromarray(cv2.cvtColor(result_img, cv2.COLOR_BGR2RGB))
+        # For now, save as PNG with SVG extension (you might want to convert back to SVG)
+        png_path = output_path.replace('.svg', '.png')
+        cv2.imwrite(png_path, result_img)
+        print(f"Result saved as: {png_path} (PNG format)")
+    else:
+        cv2.imwrite(output_path, result_img)
+        print(f"Result saved as: {output_path}")
+    print(f"Total yellow shapes detected: {len(valid_contours)}")
+    
+    return len(valid_contours), shapes_data
 
-def run_step11():
-    """
-    Run Step11 processing - extract text from PDF and rewrite professionally
-    """
+def save_shapes_to_json(shapes_data, output_file='yellowFrames.json'):
+    """Save shape data to JSON file"""
     try:
-        print("🚀 Step 11: Extracting and Rewriting Text from PDF")
-        print("=" * 70)
-        
         # Get the current working directory to determine the correct paths
         current_dir = os.getcwd()
         
         # If we're in the processors directory, use relative paths
         if current_dir.endswith('processors'):
-            pdf_path = "../files/original.pdf"
+            json_path = f"../files/tempData/{output_file}"
         else:
             # If we're in the server directory (when called from pipeline), use direct paths
-            pdf_path = "files/original.pdf"
+            json_path = f"files/tempData/{output_file}"
         
-        # Check if PDF exists
-        if not os.path.exists(pdf_path):
-            print(f"❌ Error: {pdf_path} not found")
-            print("   Please ensure the PDF has been downloaded")
-            return False
+        # Prepare the data structure
+        output_data = {
+            "total_shapes": len(shapes_data),
+            "shapes": shapes_data,
+            "metadata": {
+                "description": "Yellow traffic light shape detection results",
+                "format": "x, y coordinates (top-left corner), width, height, center coordinates"
+            }
+        }
         
-        print(f"📄 Processing PDF: {pdf_path}")
+        # Save to JSON file
+        with open(json_path, 'w', encoding='utf-8') as f:
+            json.dump(output_data, f, indent=2, ensure_ascii=False)
         
-        # Extract text from the PDF
-        extracted_text = extract_text_from_pdf(pdf_path)
-        
-        if extracted_text:
-            print("\n" + "=" * 70)
-            print("📝 ORIGINAL EXTRACTED TEXT (OCR)")
-            print("=" * 70)
-            print(extracted_text)
-            print("=" * 70)
-            
-            # Rewrite text with OpenAI
-            rewritten_text = rewrite_text_with_openai(extracted_text)
-            
-            print("\n" + "=" * 70)
-            print("✨ PROFESSIONALLY REWRITTEN TEXT (OpenAI)")
-            print("=" * 70)
-            print(rewritten_text)
-            print("=" * 70)
-            
-            # Store both texts in data.json
-            print("\n💾 Storing extracted and rewritten text in data.json...")
-            store_text_in_data_json(extracted_text, rewritten_text, pdf_path)
-            
-            print(f"\n✅ Step11 completed successfully")
-            print(f"   - Original text: {len(extracted_text)} characters")
-            print(f"   - Rewritten text: {len(rewritten_text)} characters")
-            return True
-        else:
-            print("\n⚠️  No text was extracted from the PDF")
-            print("   This might be a scanned document with poor quality or no text content")
-            # Still return True as this is not a critical failure
-            return True
+        print(f"Shape data saved to: {json_path}")
+        return True
         
     except Exception as e:
-        print(f"❌ Error in Step 11: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"Error saving to JSON: {e}")
+        return False
+
+def parse_path_data(d):
+    """Parse SVG path data to extract coordinates"""
+    commands = []
+    current = ""
+    for char in d:
+        if char in 'MmLlHhVvCcSsQqTtAaZz':
+            if current:
+                commands.append(current.strip())
+            current = char
+        else:
+            current += char
+    if current:
+        commands.append(current.strip())
+    
+    coordinates = []
+    x, y = 0, 0
+    
+    for cmd in commands:
+        if not cmd:
+            continue
+        command = cmd[0]
+        params = cmd[1:].strip()
+        
+        if command in 'MmLl':
+            # Move or line to
+            coords = [float(x) for x in re.findall(r'[-+]?\d*\.?\d+', params)]
+            for i in range(0, len(coords), 2):
+                if i + 1 < len(coords):
+                    if command.isupper():
+                        x, y = coords[i], coords[i + 1]
+                    else:
+                        x += coords[i]
+                        y += coords[i + 1]
+                    coordinates.append((x, y))
+        elif command in 'Hh':
+            # Horizontal line
+            coords = [float(x) for x in re.findall(r'[-+]?\d*\.?\d+', params)]
+            for coord in coords:
+                if command.isupper():
+                    x = coord
+                else:
+                    x += coord
+                coordinates.append((x, y))
+        elif command in 'Vv':
+            # Vertical line
+            coords = [float(x) for x in re.findall(r'[-+]?\d*\.?\d+', params)]
+            for coord in coords:
+                if command.isupper():
+                    y = coord
+                else:
+                    y += coord
+                coordinates.append((x, y))
+    
+    return coordinates
+
+def calculate_bounding_box(coordinates):
+    """Calculate the bounding box of coordinates"""
+    if not coordinates:
+        return None
+    
+    min_x = min(coord[0] for coord in coordinates)
+    max_x = max(coord[0] for coord in coordinates)
+    min_y = min(coord[1] for coord in coordinates)
+    max_y = max(coord[1] for coord in coordinates)
+    
+    return min_x, min_y, max_x, max_y
+
+def process_svg_colors():
+    # Get the current working directory to determine the correct paths
+    current_dir = os.getcwd()
+    
+    # If we're in the processors directory, use relative paths
+    if current_dir.endswith('processors'):
+        input_svg = "../files/Step4.svg"
+        output_svg = "../files/Step11.svg"
+    else:
+        # If we're in the server directory (when called from pipeline), use direct paths
+        input_svg = "files/Step4.svg"
+        output_svg = "files/Step11.svg"
+    
+    # Read the SVG file
+    with open(input_svg, 'r', encoding='utf-8') as file:
+        content = file.read()
+    
+    # Find all hex color codes (#xxxxxx)
+    hex_pattern = r'#([0-9a-fA-F]{6})'
+    
+    def replace_color(match):
+        color = match.group(1).lower()
+        # Keep #ffff00 (yellow) unchanged, replace all others with #202124
+        if color == 'ffff00':
+            return match.group(0)  # Return original match unchanged
+        else:
+            return '#202124'
+    
+    # Replace colors using the function
+    processed_content = re.sub(hex_pattern, replace_color, content)
+    
+    # Now convert #ffff00 (yellow) stroke elements to filled shapes
+    # Pattern to match style attributes with #ffff00 stroke and fill:none
+    stroke_to_fill_pattern = r'style="([^"]*fill:none[^"]*stroke:#ffff00[^"]*)"'
+    
+    def convert_stroke_to_fill(match):
+        style_attr = match.group(1)
+        
+        # Replace fill:none with the appropriate fill color
+        new_style = style_attr.replace('fill:none', 'fill:#ffff00')
+        
+        # Remove stroke-related attributes
+        new_style = re.sub(r'stroke:#ffff00[^;]*;?', '', new_style)
+        new_style = re.sub(r'stroke-width:[^;]*;?', '', new_style)
+        new_style = re.sub(r'stroke-linecap:[^;]*;?', '', new_style)
+        new_style = re.sub(r'stroke-linejoin:[^;]*;?', '', new_style)
+        new_style = re.sub(r'stroke-miterlimit:[^;]*;?', '', new_style)
+        new_style = re.sub(r'stroke-dasharray:[^;]*;?', '', new_style)
+        new_style = re.sub(r'stroke-opacity:[^;]*;?', '', new_style)
+        # Clean up any double semicolons or trailing semicolons
+        new_style = re.sub(r';;+', ';', new_style)
+        new_style = new_style.strip(';')
+        # Add thick red border
+        new_style += ';stroke:#ff0000;stroke-width:50'
+        return f'style="{new_style}"'
+    
+    # Apply the stroke-to-fill conversion
+    processed_content = re.sub(stroke_to_fill_pattern, convert_stroke_to_fill, processed_content)
+    
+    # Convert Z-shaped paths to rectangles
+    # Pattern to match path elements with #ffff00 fill
+    path_pattern = r'<path\s+[^>]*?style="([^"]*fill:#ffff00[^"]*)"[^>]*?d="([^"]*)"[^>]*?/>'
+    
+    def path_to_rect_updated(match):
+        style = match.group(1)
+        d = match.group(2)
+        
+        # Parse the path data
+        coordinates = parse_path_data(d)
+        
+        if not coordinates:
+            return match.group(0)  # Return original if we can't parse
+        
+        # Calculate bounding box
+        bbox = calculate_bounding_box(coordinates)
+        if not bbox:
+            return match.group(0)
+        
+        min_x, min_y, max_x, max_y = bbox
+        width = max_x - min_x
+        height = max_y - min_y
+        
+        # Add some padding to make the rectangle more visible
+        padding = max(width, height) * 0.1
+        width += padding * 2
+        height += padding * 2
+        min_x -= padding
+        min_y -= padding
+        
+        # Add thick red border to the style
+        if 'stroke:' not in style:
+            style += ';stroke:#ff0000;stroke-width:50'
+        else:
+            # Replace existing stroke with red border
+            style = re.sub(r'stroke:[^;]*', 'stroke:#ff0000', style)
+            style = re.sub(r'stroke-width:[^;]*', 'stroke-width:50', style)
+            if 'stroke-width:8' not in style:
+                style += ';stroke-width:50'
+        
+        # Create rect element
+        rect_element = f'<rect\n           style="{style}"\n           x="{min_x}"\n           y="{min_y}"\n           width="{width}"\n           height="{height}" />'
+        
+        return rect_element
+    
+    # Apply the path-to-rect conversion
+    processed_content = re.sub(path_pattern, path_to_rect_updated, processed_content, flags=re.DOTALL)
+    
+    # Write the processed content to a new file
+    with open(output_svg, 'w', encoding='utf-8') as file:
+        file.write(processed_content)
+    
+    
+    print("SVG processing completed!")
+    print("Original colors replaced with #202124 (except #ffff00)")
+    print("#ffff00 stroke elements converted to filled shapes")
+    print("Z-shaped paths converted to rectangles")
+    print(f"Output saved to: {output_svg}")
+
+def run_step11():
+    """
+    Run Step11 processing - detect yellow traffic light shapes
+    """
+    try:
+        # Get the current working directory to determine the correct paths
+        current_dir = os.getcwd()
+        
+        # If we're in the processors directory, use relative paths
+        if current_dir.endswith('processors'):
+            input_svg = "../files/Step4.svg"
+            output_svg = "../files/Step11.svg"
+            output_results = "../files/Step11-results.png"
+        else:
+            # If we're in the server directory (when called from pipeline), use direct paths
+            input_svg = "files/Step4.svg"
+            output_svg = "files/Step11.svg"
+            output_results = "files/Step11-results.png"
+        
+        # First process SVG colors and convert paths to rectangles
+        process_svg_colors()
+        
+        # Then detect yellow shapes on the processed SVG
+        
+        print(f"Detecting yellow traffic light shapes in: {output_svg}")
+        count, shapes_data = detect_yellow_shapes(output_svg, output_results)
+        print(f"\nFinal count: {count} yellow shapes")
+        
+        # Save shape data to JSON (always save, even if empty)
+        save_shapes_to_json(shapes_data if shapes_data else [], 'yellowFrames.json')
+        
+        return True
+        
+    except Exception as e:
+        
+        print(f"Error in processing: {e}", "error")
         return False
 
 def main():
-    """Main function for standalone execution"""
-    return run_step11()
+    parser = argparse.ArgumentParser(description='Contour-based Yellow Traffic Light Shape Detection')
+    parser.add_argument('--source', type=str, default='test/test.png',
+                       help='Path to image')
+    parser.add_argument('--output', type=str, default='results.png',
+                       help='Output image path')
+    
+    args = parser.parse_args()
+    
+    # Check if source exists
+    source_path = Path(args.source)
+    if not source_path.exists():
+        print(f"Error: Source not found at {source_path}", "error")
+        return
+    
+    # Detect shapes
+    count, shapes_data = detect_yellow_shapes(source_path, args.output)
+    
+    print(f"\nFinal count: {count} yellow traffic light shapes")
+    
+    # Save shape data to JSON
+    if shapes_data:
+        save_shapes_to_json(shapes_data, 'yellowFrames.json')
 
 if __name__ == "__main__":
-    # Change to the server directory to ensure proper file paths
-    server_dir = Path(__file__).parent.parent
-    os.chdir(server_dir)
-    
-    success = main()
-    sys.exit(0 if success else 1)
-
+    run_step11()

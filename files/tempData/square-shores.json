@@ -1,4 +1,126 @@
 {
-  "total_red_squares": 0,
-  "red_squares": []
+  "total_red_squares": 11,
+  "red_squares": [
+    {
+      "id": 1,
+      "x": 373.0,
+      "y": 1540.0,
+      "width": 11.0,
+      "height": 11.0,
+      "center_x": 378.5,
+      "center_y": 1545.5,
+      "area": 121.0,
+      "contours_count": 1
+    },
+    {
+      "id": 2,
+      "x": 373.0,
+      "y": 1456.0,
+      "width": 11.0,
+      "height": 11.0,
+      "center_x": 378.5,
+      "center_y": 1461.5,
+      "area": 121.0,
+      "contours_count": 1
+    },
+    {
+      "id": 3,
+      "x": 373.0,
+      "y": 1372.0,
+      "width": 11.0,
+      "height": 11.0,
+      "center_x": 378.5,
+      "center_y": 1377.5,
+      "area": 121.0,
+      "contours_count": 1
+    },
+    {
+      "id": 4,
+      "x": 2355.0,
+      "y": 1327.0,
+      "width": 11.0,
+      "height": 11.0,
+      "center_x": 2360.5,
+      "center_y": 1332.5,
+      "area": 121.0,
+      "contours_count": 1
+    },
+    {
+      "id": 5,
+      "x": 496.0,
+      "y": 1311.0,
+      "width": 11.0,
+      "height": 11.0,
+      "center_x": 501.5,
+      "center_y": 1316.5,
+      "area": 121.0,
+      "contours_count": 1
+    },
+    {
+      "id": 6,
+      "x": 2364.0,
+      "y": 1535.0,
+      "width": 11.0,
+      "height": 11.0,
+      "center_x": 2369.5,
+      "center_y": 1540.5,
+      "area": 121.0,
+      "contours_count": 1
+    },
+    {
+      "id": 7,
+      "x": 2364.0,
+      "y": 1451.0,
+      "width": 11.0,
+      "height": 11.0,
+      "center_x": 2369.5,
+      "center_y": 1456.5,
+      "area": 121.0,
+      "contours_count": 1
+    },
+    {
+      "id": 8,
+      "x": 1776.0,
+      "y": 1391.0,
+      "width": 11.0,
+      "height": 11.0,
+      "center_x": 1781.5,
+      "center_y": 1396.5,
+      "area": 121.0,
+      "contours_count": 1
+    },
+    {
+      "id": 9,
+      "x": 1793.0,
+      "y": 1370.0,
+      "width": 11.0,
+      "height": 11.0,
+      "center_x": 1798.5,
+      "center_y": 1375.5,
+      "area": 121.0,
+      "contours_count": 1
+    },
+    {
+      "id": 10,
+      "x": 1773.0,
+      "y": 1370.0,
+      "width": 11.0,
+      "height": 11.0,
+      "center_x": 1778.5,
+      "center_y": 1375.5,
+      "area": 121.0,
+      "contours_count": 1
+    },
+    {
+      "id": 11,
+      "x": 2364.0,
+      "y": 1367.0,
+      "width": 11.0,
+      "height": 11.0,
+      "center_x": 2369.5,
+      "center_y": 1372.5,
+      "area": 121.0,
+      "contours_count": 1
+    }
+  ]
 }

@@ -58,6 +58,15 @@ def load_orange_frames(json_path):
     except Exception as e:
         return None
 
+def load_yellow_frames(json_path):
+    """Load yellow frames data from JSON file"""
+    try:
+        with open(json_path, 'r') as f:
+            data = json.load(f)
+        return data
+    except Exception as e:
+        return None
+
 def read_svg_file(svg_path):
     """Read SVG file content"""
     try:
@@ -147,10 +156,10 @@ def create_rectangle_element(rect_data, color='red', prefix='container'):
     
     return rect_element + text_element
 
-def print_drawn_objects(green_rectangles, pink_rectangles, x_shapes, red_squares, orange_rectangles):
+def print_drawn_objects(green_rectangles, pink_rectangles, x_shapes, red_squares, orange_rectangles, yellow_rectangles):
     """Print summary information about all drawn objects in table format"""
-    total_objects = len(green_rectangles) + len(pink_rectangles) + len(x_shapes) + len(red_squares) + len(orange_rectangles)
-    
+    total_objects = len(green_rectangles) + len(pink_rectangles) + len(x_shapes) + len(red_squares) + len(orange_rectangles) + len(yellow_rectangles)
+
     print("\n" + "="*40)
     print("DRAWN OBJECTS SUMMARY")
     print("="*40)
@@ -161,11 +170,12 @@ def print_drawn_objects(green_rectangles, pink_rectangles, x_shapes, red_squares
     print(f"{'X Shapes':<20} {len(x_shapes):<10}")
     print(f"{'Red Squares':<20} {len(red_squares):<10}")
     print(f"{'Orange Frames':<20} {len(orange_rectangles):<10}")
+    print(f"{'Yellow Frames':<20} {len(yellow_rectangles):<10}")
     print("-" * 40)
     print(f"{'TOTAL':<20} {total_objects:<10}")
     print("="*40)
 
-def add_containers_to_svg(svg_content, green_rectangles, pink_rectangles, x_shapes, red_squares, orange_rectangles):
+def add_containers_to_svg(svg_content, green_rectangles, pink_rectangles, x_shapes, red_squares, orange_rectangles, yellow_rectangles):
     """Add container rectangles to SVG content"""
     # Find the opening <svg> tag to get viewBox dimensions
     svg_start_pos = svg_content.find('<svg')
@@ -235,7 +245,11 @@ def add_containers_to_svg(svg_content, green_rectangles, pink_rectangles, x_shap
     # Create container elements for orange frames (orange borders)
     for rect in orange_rectangles:
         container_elements.append(create_rectangle_element(rect, color='#fb7905', prefix='orange_container'))
-    
+
+    # Create container elements for yellow frames (yellow borders)
+    for rect in yellow_rectangles:
+        container_elements.append(create_rectangle_element(rect, color='#ffff00', prefix='yellow_container'))
+
     # Insert container elements before closing </svg> tag
     containers_svg = '\n'.join(container_elements)
     modified_svg = svg_with_background[:svg_end_pos] + '\n' + containers_svg + '\n' + svg_with_background[svg_end_pos:]
@@ -274,64 +288,71 @@ def run_step10():
     x_shapes_path = base_dir / "files" / "tempData" / "x-shores.json"
     red_squares_path = base_dir / "files" / "tempData" / "square-shores.json"
     orange_frames_path = base_dir / "files" / "tempData" / "orangeFrames.json"
+    yellow_frames_path = base_dir / "files" / "tempData" / "yellowFrames.json"
     step2_svg_path = base_dir / "files" / "Step2.svg"
     output_path = base_dir / "files" / "Step10.svg"
-    
+
     # Load data silently
     green_frames_data = load_green_frames(green_frames_path)
     if not green_frames_data:
         return False
-    
+
     green_rectangles = green_frames_data.get('rectangles', [])
-    
+
     pink_frames_data = load_pink_frames(pink_frames_path)
     if not pink_frames_data:
         return False
-    
+
     pink_rectangles = pink_frames_data.get('pink_shapes', [])
-    
+
     x_shapes_data = load_x_shapes(x_shapes_path)
     if not x_shapes_data:
         return False
-    
+
     x_shapes = x_shapes_data.get('x_shapes', [])
-    
+
     red_squares_data = load_red_squares(red_squares_path)
     if not red_squares_data:
         return False
-    
+
     red_squares = red_squares_data.get('red_squares', [])
-    
+
     orange_frames_data = load_orange_frames(orange_frames_path)
     if not orange_frames_data:
         return False
-    
+
     orange_rectangles = orange_frames_data.get('rectangles', [])
-    
+
+    yellow_frames_data = load_yellow_frames(yellow_frames_path)
+    if not yellow_frames_data:
+        return False
+
+    yellow_rectangles = yellow_frames_data.get('shapes', [])
+
     # Filter out X-shapes that overlap with red squares (silently)
     filtered_x_shapes = filter_overlapping_x_shapes(x_shapes, red_squares)
-    
+
     # Print only the table
-    print_drawn_objects(green_rectangles, pink_rectangles, filtered_x_shapes, red_squares, orange_rectangles)
-    
+    print_drawn_objects(green_rectangles, pink_rectangles, filtered_x_shapes, red_squares, orange_rectangles, yellow_rectangles)
+
     # Process SVG silently
     svg_content = read_svg_file(step2_svg_path)
     if not svg_content:
         return False
-    
-    modified_svg = add_containers_to_svg(svg_content, green_rectangles, pink_rectangles, filtered_x_shapes, red_squares, orange_rectangles)
+
+    modified_svg = add_containers_to_svg(svg_content, green_rectangles, pink_rectangles, filtered_x_shapes, red_squares, orange_rectangles, yellow_rectangles)
     if not modified_svg:
         return False
-    
+
     # Save SVG
     success = save_svg_file(modified_svg, output_path)
     if not success:
         return False
-    
+
     # Convert to PNG
     png_output_path = base_dir / "files" / "Step10-results.png"
     png_success = convert_svg_to_png(output_path, png_output_path)
-    
+
     return success and png_success
 
 def main():

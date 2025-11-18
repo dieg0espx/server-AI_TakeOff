@@ -5,7 +5,7 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from colorama import init, Fore, Style
-from PatternComponents import shores_box, frames_6x4, frames_5x4, frames_inBox, shores
+from PatternComponents import shores_box, frames_6x4, frames_5x4, frames_inBox, shores, yellow_traffic_light
 import cairosvg
 import io
 from PIL import Image
@@ -60,7 +60,7 @@ def append_counts_to_json(box_count, shores_count, frames6x4_count, frames5x4_co
     # Keeping the function signature for compatibility but removing the JSON writing
     pass
 
-def apply_color_to_specific_paths(input_file, output_file, red="#fb0505", blue="#0000ff", green="#70ff00", pink="#ff00cd", orange="#fb7905"):
+def apply_color_to_specific_paths(input_file, output_file, red="#fb0505", blue="#0000ff", green="#70ff00", pink="#ff00cd", orange="#fb7905", yellow="#ffff00"):
     """
     Reads an SVG file and changes colors of specific paths:
     - shores_box paths to red
@@ -68,6 +68,7 @@ def apply_color_to_specific_paths(input_file, output_file, red="#fb0505", blue="
     - frames_6x4 paths to green
     - frames_5x4 paths to pink
     - frames_inBox paths to orange
+    - yellow_traffic_light paths to yellow
     """
     try:
         if not os.path.exists(input_file):
@@ -93,6 +94,8 @@ def apply_color_to_specific_paths(input_file, output_file, red="#fb0505", blue="
             re.IGNORECASE)
         
         framesinBox_pattern = re.compile(rf'<path[^>]+d="[^"]*({"|".join(re.escape(variation) for variation in frames_inBox)})[^"]*"[^>]*>')
+
+        yellow_pattern = re.compile(rf'<path[^>]+d="[^"]*({"|".join(re.escape(variation) for variation in yellow_traffic_light)})[^"]*"[^>]*>')
 
         shores_pattern = re.compile(rf'<path[^>]+d="[^"]*({"|".join(re.escape(variation) for variation in shores)})[^"]*"[^>]*>')
 
@@ -182,6 +185,18 @@ def apply_color_to_specific_paths(input_file, output_file, red="#fb0505", blue="
                 path_tag = re.sub(r'fill:[#0-9a-fA-F]+', f'fill:{orange}', path_tag)
             else:
                 path_tag = path_tag.replace("<path", f"<path fill='{orange}'", 1)
+            return path_tag
+
+        def change_to_yellow(match):
+            path_tag = match.group(0)
+            if "stroke" in path_tag:
+                path_tag = re.sub(r'stroke:[#0-9a-fA-F]+', f'stroke:{yellow}', path_tag)
+            else:
+                path_tag = path_tag.replace("<path", f"<path stroke='{yellow}'", 1)
+            if "fill" in path_tag:
+                path_tag = re.sub(r'fill:[#0-9a-fA-F]+', f'fill:{yellow}', path_tag)
+            else:
+                path_tag = path_tag.replace("<path", f"<path fill='{yellow}'", 1)
             return path_tag
 
         def change_adjacent_paths_to_pink(svg_text):
@@ -298,6 +313,7 @@ def apply_color_to_specific_paths(input_file, output_file, red="#fb0505", blue="
         modified_svg_text = change_adjacent_paths_to_pink(modified_svg_text)
         modified_svg_text = frames5x4_pattern.sub(change_to_pink, modified_svg_text)
         modified_svg_text = framesinBox_pattern.sub(change_to_orange, modified_svg_text)
+        modified_svg_text = yellow_pattern.sub(change_to_yellow, modified_svg_text)
         modified_svg_text = frames6x4_pattern.sub(change_to_green, modified_svg_text)
 
         # Write modified content
