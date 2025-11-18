@@ -62,8 +62,8 @@ def split_elongated_squares(squares_data, aspect_ratio_threshold=2.0):
             x = square['x']
             y = square['y']
 
-            # Determine how many squares to split into
-            num_splits = round(aspect_ratio)
+            # Split into 2 parts (not more)
+            num_splits = 2
 
             # Determine if it's horizontal or vertical
             if width > height:
