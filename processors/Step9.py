@@ -218,10 +218,10 @@ def save_rectangles_to_json(rectangles_data, output_file='orangeFrames.json'):
         
         # If we're in the processors directory, use relative paths
         if current_dir.endswith('processors'):
-            json_path = f"../{output_file}"
+            json_path = f"../files/tempData/{output_file}"
         else:
             # If we're in the server directory (when called from pipeline), use direct paths
-            json_path = output_file
+            json_path = f"files/tempData/{output_file}"
         
         # Prepare the data structure
         output_data = {
@@ -491,9 +491,8 @@ def run_step9():
         count, rectangles_data = detect_orange_rectangles(output_svg, output_results)
         print(f"\nFinal count: {count} orange rectangles")
         
-        # Save rectangle data to JSON
-        if rectangles_data:
-            save_rectangles_to_json(rectangles_data, 'orangeFrames.json')
+        # Save rectangle data to JSON (always save, even if empty)
+        save_rectangles_to_json(rectangles_data if rectangles_data else [], 'orangeFrames.json')
         
         return True
         
@@ -551,9 +550,8 @@ if __name__ == "__main__":
         count, rectangles_data = detect_orange_rectangles(output_svg, output_results)
         print(f"\nFinal count: {count} orange rectangles")
         
-        # Save rectangle data to JSON
-        if rectangles_data:
-            save_rectangles_to_json(rectangles_data, 'orangeFrames.json')
+        # Save rectangle data to JSON (always save, even if empty)
+        save_rectangles_to_json(rectangles_data if rectangles_data else [], 'orangeFrames.json')
         
     except Exception as e:
         

@@ -1,0 +1,8 @@
+{
+  "total_rectangles": 0,
+  "rectangles": [],
+  "metadata": {
+    "description": "Orange rectangle detection results",
+    "format": "x, y coordinates (top-left corner), width, height, center coordinates"
+  }
+}

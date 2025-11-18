@@ -94,9 +94,11 @@ def apply_color_to_specific_paths(input_file, output_file, red="#fb0505", blue="
         
         framesinBox_pattern = re.compile(rf'<path[^>]+d="[^"]*({"|".join(re.escape(variation) for variation in frames_inBox)})[^"]*"[^>]*>')
 
+        shores_pattern = re.compile(rf'<path[^>]+d="[^"]*({"|".join(re.escape(variation) for variation in shores)})[^"]*"[^>]*>')
+
         # Count matching paths
         match_count_box = len(shores_box_pattern.findall(svg_text))
-        match_count_33_34 = len(shores.findall(svg_text))
+        match_count_33_34 = len(shores_pattern.findall(svg_text))
         match_count_frames6x4 = len(frames6x4_pattern.findall(svg_text))
         match_count_frames5x4 = len(frames5x4_pattern.findall(svg_text))
         match_count_framesinBox = len(framesinBox_pattern.findall(svg_text))
@@ -290,7 +292,7 @@ def apply_color_to_specific_paths(input_file, output_file, red="#fb0505", blue="
 
         # Apply colors
         modified_svg_text = shores_box_pattern.sub(change_to_red, svg_text)
-        modified_svg_text = shores.sub(change_to_blue, modified_svg_text)
+        modified_svg_text = shores_pattern.sub(change_to_blue, modified_svg_text)
         
         # First apply adjacent path coloring, then the diagonal paths
         modified_svg_text = change_adjacent_paths_to_pink(modified_svg_text)

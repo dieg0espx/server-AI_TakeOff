@@ -290,13 +290,13 @@ def run_step5():
             input_svg = "../files/Step4.svg"
             output_svg = "../files/Step5.svg"
             output_results = "../files/Step5-results.svg"
-            json_output = "../x-shores.json"
+            json_output = "../files/tempData/x-shores.json"
         else:
             # If we're in the server directory (when called from pipeline), use direct paths
             input_svg = "files/Step4.svg"
             output_svg = "files/Step5.svg"
             output_results = "files/Step5-results.svg"
-            json_output = "x-shores.json"
+            json_output = "files/tempData/x-shores.json"
         
         # First process SVG colors
         process_svg_colors(input_svg, output_svg)
@@ -345,13 +345,13 @@ if __name__ == "__main__":
             input_svg = "../files/Step4.svg"
             output_svg = "../files/Step5.svg"
             output_results = "../files/Step5-results.svg"
-            json_output = "../x-shores.json"
+            json_output = "../files/tempData/x-shores.json"
         else:
             # If we're in the server directory (when called from pipeline), use direct paths
             input_svg = "files/Step4.svg"
             output_svg = "files/Step5.svg"
             output_results = "files/Step5-results.svg"
-            json_output = "x-shores.json"
+            json_output = "files/tempData/x-shores.json"
         
         # First process SVG colors
         process_svg_colors(input_svg, output_svg)

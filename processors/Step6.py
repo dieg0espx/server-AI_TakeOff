@@ -456,9 +456,9 @@ def process_svg_colors():
     print("\nPHASE 4: Contour-based object detection on Step6.svg")
     
     # Define JSON output path
-    json_output = "square-shores.json"
+    json_output = "files/tempData/square-shores.json"
     if current_dir.endswith('processors'):
-        json_output = "../square-shores.json"
+        json_output = "../files/tempData/square-shores.json"
     
     try:
         # Detect red squares in the processed SVG

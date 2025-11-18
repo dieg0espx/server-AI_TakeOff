@@ -31,6 +31,9 @@ from api.pdf_text_extractor import extract_text_from_pdf
 # Import the Cloudinary manager
 from api.cloudinary_manager import get_cloudinary_manager
 
+# Import the email notifier
+from utils.email_notifier import notify_error
+
 
 
 # Create FastAPI instance
@@ -500,7 +503,19 @@ async def process_ai_takeoff_sync(upload_id: str):
                 await log_to_client(upload_id, f"❌ {error_msg}", "error")
                 print(f"🚨 PDF DOWNLOAD FAILURE - Upload ID: {upload_id}")
                 print(f"🚨 Error: {error_msg}")
-                
+
+                # Send email notification
+                notify_error(
+                    error_title="PDF Download Failed",
+                    error_message=error_msg,
+                    error_details={
+                        "upload_id": upload_id,
+                        "file_path": file_path if file_path else "None",
+                        "stage": "PDF Download from Google Drive"
+                    },
+                    upload_id=upload_id
+                )
+
                 return {
                     "id": upload_id,
                     "status": "error",
@@ -514,7 +529,20 @@ async def process_ai_takeoff_sync(upload_id: str):
             await log_to_client(upload_id, f"❌ {error_msg}", "error")
             print(f"🚨 PDF DOWNLOAD EXCEPTION - Upload ID: {upload_id}")
             print(f"🚨 Exception: {download_error}")
-            
+
+            # Send email notification
+            notify_error(
+                error_title="PDF Download Exception",
+                error_message=error_msg,
+                error_details={
+                    "upload_id": upload_id,
+                    "stage": "PDF Download from Google Drive",
+                    "exception_type": type(download_error).__name__
+                },
+                exception=download_error,
+                upload_id=upload_id
+            )
+
             return {
                 "id": upload_id,
                 "status": "error",
@@ -570,7 +598,21 @@ async def process_ai_takeoff_sync(upload_id: str):
                         print(f"🚨 Failed Step: {failed_step}")
                         print(f"🚨 Error Details: {error_details}")
                         print(f"🚨 Steps completed before failure: {failed_step}")
-                        
+
+                        # Send email notification
+                        notify_error(
+                            error_title=f"Pipeline Failed at {failed_step}",
+                            error_message=error_details,
+                            error_details={
+                                "upload_id": upload_id,
+                                "failed_step": failed_step,
+                                "stage": "AI Processing Pipeline",
+                                "pdf_path": file_path,
+                                "svg_path": svg_path
+                            },
+                            upload_id=upload_id
+                        )
+
                         # Return error response to client
                         return {
                             "id": upload_id,
@@ -589,7 +631,22 @@ async def process_ai_takeoff_sync(upload_id: str):
                     await log_to_client(upload_id, error_msg, "error")
                     print(f"🚨 PIPELINE EXCEPTION - Upload ID: {upload_id}")
                     print(f"🚨 Exception: {pipeline_error}")
-                    
+
+                    # Send email notification
+                    notify_error(
+                        error_title="Pipeline Exception",
+                        error_message=error_msg,
+                        error_details={
+                            "upload_id": upload_id,
+                            "stage": "AI Processing Pipeline",
+                            "exception_type": type(pipeline_error).__name__,
+                            "pdf_path": file_path,
+                            "svg_path": svg_path
+                        },
+                        exception=pipeline_error,
+                        upload_id=upload_id
+                    )
+
                     # Return error response to client
                     return {
                         "id": upload_id,
@@ -608,7 +665,21 @@ async def process_ai_takeoff_sync(upload_id: str):
                 await log_to_client(upload_id, error_msg, "error")
                 print(f"🚨 SVG CONVERSION FAILURE - Upload ID: {upload_id}")
                 print(f"🚨 Exception: {conversion_error}")
-                
+
+                # Send email notification
+                notify_error(
+                    error_title="SVG Conversion Failed",
+                    error_message=error_msg,
+                    error_details={
+                        "upload_id": upload_id,
+                        "stage": "PDF to SVG Conversion (Convertio)",
+                        "exception_type": type(conversion_error).__name__,
+                        "pdf_path": file_path
+                    },
+                    exception=conversion_error,
+                    upload_id=upload_id
+                )
+
                 # Return error response to client
                 return {
                     "id": upload_id,
@@ -664,7 +735,20 @@ async def process_ai_takeoff_sync(upload_id: str):
         print(f"🚨 UNEXPECTED ERROR - Upload ID: {upload_id}")
         print(f"🚨 Exception: {e}")
         print(f"🚨 Exception Type: {type(e).__name__}")
-        
+
+        # Send email notification
+        notify_error(
+            error_title="Unexpected Processing Error",
+            error_message=error_msg,
+            error_details={
+                "upload_id": upload_id,
+                "stage": "General AI Processing",
+                "exception_type": type(e).__name__
+            },
+            exception=e,
+            upload_id=upload_id
+        )
+
         result = {
             "id": upload_id,
             "status": "error",

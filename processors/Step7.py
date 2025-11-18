@@ -219,10 +219,10 @@ def save_shapes_to_json(shapes_data, output_file='pinkFrames.json'):
 
         # If we're in the processors directory, use relative paths
         if current_dir.endswith('processors'):
-            json_path = f"../{output_file}"
+            json_path = f"../files/tempData/{output_file}"
         else:
             # If we're in the server directory (when called from pipeline), use direct paths
-            json_path = output_file
+            json_path = f"files/tempData/{output_file}"
 
         # Prepare the data structure
         output_data = {
@@ -461,6 +461,64 @@ def count_pink_rectangles_from_svg(svg_path):
         return 0
 
 
+def filter_shapes_by_size(shapes_data, tolerance=10):
+    """
+    Filter shapes to only include those within acceptable size ranges.
+    Uses fixed reference ranges (46.5-72.0 width, 56.0-59.0 height) with tolerance.
+
+    Args:
+        shapes_data: List of shape dictionaries with 'width' and 'height'
+        tolerance: Number of pixels tolerance from reference ranges (default: 10)
+
+    Returns:
+        Filtered list of shapes
+    """
+    if not shapes_data:
+        return []
+
+    # Fixed reference ranges from typical pink frame sizes
+    ref_min_width = 46.5
+    ref_max_width = 72.0
+    ref_min_height = 56.0
+    ref_max_height = 59.0
+
+    # Apply tolerance to reference ranges
+    min_width = ref_min_width - tolerance
+    max_width = ref_max_width + tolerance
+    min_height = ref_min_height - tolerance
+    max_height = ref_max_height + tolerance
+
+    print(f"\n  Size filtering (tolerance: ±{tolerance}px from reference):")
+    print(f"  Reference width range: {ref_min_width:.1f} - {ref_max_width:.1f}")
+    print(f"  Reference height range: {ref_min_height:.1f} - {ref_max_height:.1f}")
+    print(f"  Acceptable width range: {min_width:.1f} - {max_width:.1f}")
+    print(f"  Acceptable height range: {min_height:.1f} - {max_height:.1f}")
+
+    # Filter shapes
+    filtered_shapes = []
+    rejected_count = 0
+
+    for shape in shapes_data:
+        width = shape['width']
+        height = shape['height']
+
+        # Check if within acceptable ranges
+        if (min_width <= width <= max_width and
+            min_height <= height <= max_height):
+            filtered_shapes.append(shape)
+        else:
+            rejected_count += 1
+            print(f"  Rejected shape {shape['id']}: {width:.1f}x{height:.1f} (outside range)")
+
+    print(f"  Kept {len(filtered_shapes)} shapes, rejected {rejected_count} shapes")
+
+    # Re-number the filtered shapes
+    for i, shape in enumerate(filtered_shapes):
+        shape['id'] = i + 1
+
+    return filtered_shapes
+
+
 def split_elongated_rectangles(shapes_data, aspect_ratio_threshold=2.0):
     """Split rectangles that are too elongated into 2 separate shapes"""
     new_shapes = []
@@ -623,11 +681,17 @@ def run_step7():
             print(f"\nChecking for elongated rectangles to split...")
             shapes_data = split_elongated_rectangles(shapes_data, aspect_ratio_threshold=1.6)
             count = len(shapes_data)
-            print(f"\nFinal count after splitting: {count} pink shapes")
+            print(f"\nCount after splitting: {count} pink shapes")
 
-        # Save shape data to JSON
+        # Filter shapes by size (±10 pixels from average)
         if shapes_data:
-            save_shapes_to_json(shapes_data, 'pinkFrames.json')
+            print(f"\nApplying size filtering...")
+            shapes_data = filter_shapes_by_size(shapes_data, tolerance=10)
+            count = len(shapes_data)
+            print(f"\nFinal count after filtering: {count} pink shapes")
+
+        # Save shape data to JSON (always save, even if empty)
+        save_shapes_to_json(shapes_data if shapes_data else [], 'pinkFrames.json')
 
         # Add numbered labels to the SVG
         if shapes_data:
@@ -673,11 +737,17 @@ if __name__ == "__main__":
             print(f"\nChecking for elongated rectangles to split...")
             shapes_data = split_elongated_rectangles(shapes_data, aspect_ratio_threshold=1.6)
             count = len(shapes_data)
-            print(f"\nFinal count after splitting: {count} pink shapes")
+            print(f"\nCount after splitting: {count} pink shapes")
 
-        # Save shape data to JSON
+        # Filter shapes by size (±10 pixels from average)
         if shapes_data:
-            save_shapes_to_json(shapes_data, 'pinkFrames.json')
+            print(f"\nApplying size filtering...")
+            shapes_data = filter_shapes_by_size(shapes_data, tolerance=10)
+            count = len(shapes_data)
+            print(f"\nFinal count after filtering: {count} pink shapes")
+
+        # Save shape data to JSON (always save, even if empty)
+        save_shapes_to_json(shapes_data if shapes_data else [], 'pinkFrames.json')
 
         # Add numbered labels to the SVG
         if shapes_data:

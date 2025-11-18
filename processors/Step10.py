@@ -254,23 +254,28 @@ def save_svg_file(svg_content, output_path):
 def convert_svg_to_png(svg_path, png_path):
     """Convert SVG to PNG"""
     try:
+        print(f"🔄 Attempting to convert {svg_path} to {png_path}")
         cairosvg.svg2png(url=str(svg_path), write_to=str(png_path))
+        print(f"✅ Successfully converted SVG to PNG: {png_path}")
         return True
     except Exception as e:
-        print(f"⚠️  Error converting SVG to PNG: {e}")
+        print(f"❌ Error converting SVG to PNG: {e}")
+        print(f"❌ Error type: {type(e).__name__}")
+        import traceback
+        traceback.print_exc()
         return False
 
 def run_step10():
     """Main function to process Step 10"""
     # Define file paths
     base_dir = Path(__file__).parent.parent
-    green_frames_path = base_dir / "greenFrames.json"
-    pink_frames_path = base_dir / "pinkFrames.json"
-    x_shapes_path = base_dir / "x-shores.json"
-    red_squares_path = base_dir / "square-shores.json"
-    orange_frames_path = base_dir / "orangeFrames.json"
+    green_frames_path = base_dir / "files" / "tempData" / "greenFrames.json"
+    pink_frames_path = base_dir / "files" / "tempData" / "pinkFrames.json"
+    x_shapes_path = base_dir / "files" / "tempData" / "x-shores.json"
+    red_squares_path = base_dir / "files" / "tempData" / "square-shores.json"
+    orange_frames_path = base_dir / "files" / "tempData" / "orangeFrames.json"
     step2_svg_path = base_dir / "files" / "Step2.svg"
-    output_path = base_dir / "files" / "step10.svg"
+    output_path = base_dir / "files" / "Step10.svg"
     
     # Load data silently
     green_frames_data = load_green_frames(green_frames_path)
