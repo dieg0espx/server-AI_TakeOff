@@ -318,8 +318,27 @@ def run_pipeline_with_logging(upload_id: str):
                     
             except Exception as e:
                 print(f"⚠️  Error uploading to Cloudinary: {str(e)}")
-            
-            # Write back to data.json with Cloudinary URLs
+
+            # Upload Step10.svg to TTF SVG API
+            try:
+                print(f"\n📤 Uploading Step10.svg to TTF API...")
+                from api.cloudinary_manager import upload_svg_to_api
+                svg_path = "files/Step10.svg"
+                if os.path.exists(svg_path):
+                    svg_url = upload_svg_to_api(svg_path)
+                    if svg_url:
+                        if 'svg_urls' not in data:
+                            data['svg_urls'] = {}
+                        data['svg_urls']['step10'] = svg_url
+                        print(f"✅ Step10.svg uploaded: {svg_url}")
+                    else:
+                        print("⚠️  Failed to upload Step10.svg to TTF API")
+                else:
+                    print("⚠️  Step10.svg not found - skipping SVG upload")
+            except Exception as e:
+                print(f"⚠️  Error uploading SVG to TTF API: {str(e)}")
+
+            # Write back to data.json with Cloudinary URLs and SVG URLs
             with open(data_file, 'w') as f:
                 json.dump(data, f, indent=4)
             
@@ -746,8 +765,16 @@ async def process_ai_takeoff_sync(upload_id: str):
                     elif 'step8_results' in cloudinary_urls:
                         result_url = cloudinary_urls['step8_results']
 
-                # Return just the result URL
-                result = result_url
+                # Get SVG URL if available
+                svg_url = None
+                if 'svg_urls' in data_results and 'step10' in data_results['svg_urls']:
+                    svg_url = data_results['svg_urls']['step10']
+
+                # Return result with SVG URL
+                result = {
+                    "result_url": result_url,
+                    "svg_url": svg_url
+                }
             except Exception as e:
                 await log_to_client(upload_id, f"❌ Error reading data.json: {e}", "error")
                 print(f"Error reading data.json: {e}")
