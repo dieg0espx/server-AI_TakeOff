@@ -430,7 +430,6 @@ async def get_ai_takeoff_results(upload_id: str):
     
     try:
         with open(data_json_path, 'r') as f:
-            import json
             data_results = json.load(f)
         
         # Check if this result belongs to the requested upload_id
@@ -701,7 +700,6 @@ async def process_ai_takeoff_sync(upload_id: str, company: str = None, jobsite: 
         if os.path.exists(data_json_path):
             try:
                 with open(data_json_path, 'r') as f:
-                    import json
                     data_results = json.load(f)
 
                 # Get result URL from tracking_url

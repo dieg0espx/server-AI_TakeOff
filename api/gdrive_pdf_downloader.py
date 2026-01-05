@@ -23,14 +23,14 @@ def get_global_upload_id() -> Optional[str]:
 def download_pdf_from_drive(file_id: str = None, output_folder: str = "files") -> str:
     """
     Download a PDF file from Google Drive and save it as original.pdf
-    
+
     Args:
         file_id (str): The Google Drive file ID (if None, uses global_upload_id)
         output_folder (str): The folder to save the file in (default: "files")
-    
+
     Returns:
         str: Path to the downloaded file
-    
+
     Raises:
         Exception: If download fails or file is not accessible
     """
@@ -39,34 +39,47 @@ def download_pdf_from_drive(file_id: str = None, output_folder: str = "files") -
         file_id = get_global_upload_id()
         if file_id is None:
             raise Exception("No file_id provided and no global upload_id set")
-        
+
         print(f"Using global upload_id: {file_id}")
-    
-    # Google Drive download URL template
-    GOOGLE_DRIVE_DOWNLOAD_URL = "https://drive.google.com/uc?export=download&id="
-    
+
     try:
-        
+
         print(f"Attempting to download file with ID: {file_id}")
-        
+
         # Create output folder if it doesn't exist
         os.makedirs(output_folder, exist_ok=True)
-        
-        # Construct download URL
-        download_url = f"{GOOGLE_DRIVE_DOWNLOAD_URL}{file_id}"
-        print(f"Download URL: {download_url}")
-        
+
         # Use a session to handle cookies and redirects
         session = requests.Session()
+
+        # First attempt: Try direct download URL with confirm parameter
+        # This bypasses the virus scan warning for larger files
+        download_url = f"https://drive.usercontent.google.com/download?id={file_id}&export=download&confirm=t"
+        print(f"Download URL: {download_url}")
+
         response = session.get(download_url, allow_redirects=True)
-        
+
         print(f"Response status code: {response.status_code}")
-        
+
         if response.status_code != 200:
             raise Exception(f"File not found or not accessible. Status code: {response.status_code}")
 
-        # Check if we got a PDF file
+        # Check if we got a PDF file or if we got an HTML page (virus scan warning)
         content_type = response.headers.get('content-type', '')
+
+        # If we got HTML, it's likely a virus scan warning page - try alternative URL
+        if 'text/html' in content_type:
+            print("Received HTML response, trying alternative download method...")
+
+            # Try the older URL format with confirm=t
+            alt_url = f"https://drive.google.com/uc?export=download&id={file_id}&confirm=t"
+            response = session.get(alt_url, allow_redirects=True)
+            content_type = response.headers.get('content-type', '')
+
+            # If still HTML, raise an error
+            if 'text/html' in content_type:
+                raise Exception("Could not download PDF - Google Drive returned HTML page. The file may not be publicly accessible or may require authentication.")
+
         if 'application/pdf' not in content_type and 'application/octet-stream' not in content_type:
             print(f"Warning: Unexpected content type: {content_type}", "warning")
 
@@ -74,10 +87,16 @@ def download_pdf_from_drive(file_id: str = None, output_folder: str = "files") -
         file_path = os.path.join(output_folder, "original.pdf")
         with open(file_path, 'wb') as f:
             f.write(response.content)
-        
+
         print(f"File saved to: {file_path}")
         print(f"File size: {os.path.getsize(file_path)} bytes")
-        
+
+        # Verify we got a real PDF by checking magic bytes
+        with open(file_path, 'rb') as f:
+            header = f.read(10)
+            if not header.startswith(b'%PDF'):
+                raise Exception("Downloaded file is not a valid PDF. The file may not be publicly accessible.")
+
         return file_path
 
     except requests.exceptions.RequestException as e:
