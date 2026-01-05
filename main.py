@@ -348,20 +348,30 @@ async def health_check():
 
 # AI-Takeoff specific endpoint
 @app.get("/AI-Takeoff/{upload_id}")
-async def get_ai_takeoff_result(upload_id: str, background_tasks: BackgroundTasks = None, sync: bool = True):
+async def get_ai_takeoff_result(
+    upload_id: str,
+    company: str = None,
+    jobsite: str = None,
+    background_tasks: BackgroundTasks = None,
+    sync: bool = True
+):
     # Store the Google Drive file ID in JSON as google_drive_file_id
     config_manager.set_file_id(upload_id)
-    
+
     print(f"🔍 AI-Takeoff Request for upload_id: {upload_id}")
     print(f"📝 Stored Google Drive file ID in JSON as google_drive_file_id: {upload_id}")
-    
+    if company:
+        print(f"🏢 Company: {company}")
+    if jobsite:
+        print(f"📍 Jobsite: {jobsite}")
+
     # Force synchronous processing by default, or if sync=True
     if sync:
         print(f"🔄 Running in synchronous mode...")
-        return await process_ai_takeoff_sync(upload_id)
+        return await process_ai_takeoff_sync(upload_id, company, jobsite)
     else:
         # Fallback to synchronous processing
-        return await process_ai_takeoff_sync(upload_id)
+        return await process_ai_takeoff_sync(upload_id, company, jobsite)
 
 # Extract text from PDF endpoint
 @app.get("/extract-text/{upload_id}")
@@ -446,10 +456,28 @@ async def get_ai_takeoff_results(upload_id: str):
         }
 
 
-async def process_ai_takeoff_sync(upload_id: str):
+async def process_ai_takeoff_sync(upload_id: str, company: str = None, jobsite: str = None):
     """Synchronous processing"""
     try:
         await log_to_client(upload_id, f"📄 Starting PDF download for upload_id: {upload_id}")
+
+        # Store company and jobsite in data.json early
+        if company or jobsite:
+            data_json_path = os.path.join('data.json')
+            data = {}
+            if os.path.exists(data_json_path):
+                try:
+                    with open(data_json_path, 'r') as f:
+                        data = json.load(f)
+                except:
+                    data = {}
+            if company:
+                data['company'] = company
+            if jobsite:
+                data['jobsite'] = jobsite
+            data['upload_id'] = upload_id
+            with open(data_json_path, 'w') as f:
+                json.dump(data, f, indent=4)
         
         # Step 1: Download the PDF
         try:
