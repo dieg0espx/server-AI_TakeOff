@@ -320,7 +320,7 @@ STACK TRACE:
 
         # Extract data from results
         step_results = results.get('step_results', {})
-        cloudinary_urls = results.get('cloudinary_urls', {})
+        svg_urls = results.get('svg_urls', {})
 
         # Calculate totals
         total_detections = sum(step_results.values())
@@ -429,13 +429,13 @@ STACK TRACE:
                 </div>
         """
 
-        # Add result URLs if available
-        if cloudinary_urls:
+        # Add SVG URLs if available
+        if svg_urls:
             html += """
                 <div class="section">
-                    <p class="label">Result Images:</p>
+                    <p class="label">SVG Results:</p>
             """
-            for key, url in cloudinary_urls.items():
+            for key, url in svg_urls.items():
                 if url:
                     html += f'<a href="{url}" class="button">View {key.replace("_", " ").title()}</a>'
             html += """
@@ -478,7 +478,7 @@ STACK TRACE:
 
         # Extract data from results
         step_results = results.get('step_results', {})
-        cloudinary_urls = results.get('cloudinary_urls', {})
+        svg_urls = results.get('svg_urls', {})
 
         # Calculate totals
         total_detections = sum(step_results.values())
@@ -508,10 +508,10 @@ Orange Rectangles:      {step_results.get('step9_orange_rectangles', 0)}
 TOTAL DETECTIONS:       {total_detections}
 """
 
-        # Add result URLs if available
-        if cloudinary_urls:
-            text += "\n\nRESULT IMAGES:\n"
-            for key, url in cloudinary_urls.items():
+        # Add SVG URLs if available
+        if svg_urls:
+            text += "\n\nSVG RESULTS:\n"
+            for key, url in svg_urls.items():
                 if url:
                     text += f"  {key.replace('_', ' ').title()}: {url}\n"
 

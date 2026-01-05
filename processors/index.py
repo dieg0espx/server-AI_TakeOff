@@ -132,7 +132,7 @@ def extract_count_from_output(step_name, output):
 
 def update_data_json(step_counts):
     """
-    Update data.json with the collected step counts and Cloudinary URLs
+    Update data.json with the collected step counts
     """
     try:
         # Read existing data.json
@@ -142,42 +142,17 @@ def update_data_json(step_counts):
                 data = json.load(f)
         else:
             data = {}
-        
+
         # Add step results section
         data["step_results"] = step_counts
-        
-        # Upload images to Cloudinary and get URLs
-        try:
-            # Add the parent directory to sys.path to find the api module
-            parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            if parent_dir not in sys.path:
-                sys.path.insert(0, parent_dir)
-            
-            from api.cloudinary_manager import get_cloudinary_manager
-            cloudinary_manager = get_cloudinary_manager()
-            
-            if cloudinary_manager:
-                print("☁️  Uploading processing results to Cloudinary...")
-                cloudinary_urls = cloudinary_manager.upload_processing_results(step_counts)
-                
-                if cloudinary_urls:
-                    data["cloudinary_urls"] = cloudinary_urls
-                    print(f"✅ Successfully uploaded {len(cloudinary_urls)} images to Cloudinary")
-                else:
-                    print("⚠️  No images were uploaded to Cloudinary")
-            else:
-                print("⚠️  Cloudinary not configured - skipping image uploads")
-                
-        except Exception as e:
-            print(f"⚠️  Error uploading to Cloudinary: {str(e)}")
-        
+
         # Write back to data.json
         with open(data_file, 'w') as f:
             json.dump(data, f, indent=4)
-        
-        print(f"✅ Updated {data_file} with step results and Cloudinary URLs")
+
+        print(f"✅ Updated {data_file} with step results")
         return True
-        
+
     except Exception as e:
         print(f"❌ Error updating data.json: {str(e)}")
         return False
@@ -288,9 +263,9 @@ def main():
                     print("   - Step results:")
                     for step, count in data['step_results'].items():
                         print(f"     * {step}: {count}")
-                if 'cloudinary_urls' in data:
-                    print("   - Cloudinary URLs:")
-                    for step, url in data['cloudinary_urls'].items():
+                if 'svg_urls' in data:
+                    print("   - SVG URLs:")
+                    for step, url in data['svg_urls'].items():
                         print(f"     * {step}: {url}")
             except Exception as e:
                 print(f"⚠️  Could not read data.json: {e}")

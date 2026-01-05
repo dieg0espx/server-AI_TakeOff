@@ -42,8 +42,6 @@ try:
     print('✅ Uvicorn imported successfully')
     import requests
     print('✅ Requests imported successfully')
-    import cloudinary
-    print('✅ Cloudinary imported successfully')
     print('✅ All dependencies available')
 except ImportError as e:
     print(f'❌ Missing dependency: {e}')

@@ -28,9 +28,6 @@ from pdf_to_svg_converter import ConvertioConverter
 # Import the PDF text extractor
 from api.pdf_text_extractor import extract_text_from_pdf
 
-# Import the Cloudinary manager
-from api.cloudinary_manager import get_cloudinary_manager
-
 # Import the email notifier
 from utils.email_notifier import notify_error, notify_success
 
@@ -85,70 +82,6 @@ def convert_svg_to_png(svg_path: str, png_path: str) -> bool:
     except Exception as e:
         print(f"❌ Error converting SVG to PNG: {str(e)}")
         return False
-
-
-# Function to upload original PNG to Cloudinary and update data.json
-async def upload_original_png_to_cloudinary(upload_id: str, svg_path: str) -> str:
-    """
-    Convert original SVG to PNG, upload to Cloudinary, and store URL in data.json
-    
-    Args:
-        upload_id: The upload ID for this request
-        svg_path: Path to the original SVG file
-        
-    Returns:
-        Cloudinary URL of the uploaded PNG or None if failed
-    """
-    try:
-        # Convert SVG to PNG
-        png_path = os.path.join('files', 'original.png')
-        if not convert_svg_to_png(svg_path, png_path):
-            return None
-        
-        # Get Cloudinary manager
-        cloudinary_manager = get_cloudinary_manager()
-        if not cloudinary_manager:
-            print("⚠️  Cloudinary manager not available")
-            return None
-        
-        # Upload PNG to Cloudinary
-        public_id = f"original_{upload_id}"
-        cloudinary_url = cloudinary_manager.upload_image(png_path, public_id)
-        
-        if cloudinary_url:
-            # Update data.json with the original PNG URL
-            data_json_path = os.path.join('data.json')
-            data = {}
-            
-            # Load existing data if file exists
-            if os.path.exists(data_json_path):
-                try:
-                    with open(data_json_path, 'r') as f:
-                        data = json.load(f)
-                except Exception as e:
-                    print(f"⚠️  Error reading existing data.json: {e}")
-                    data = {}
-            
-            # Add the original PNG URL
-            if 'cloudinary_urls' not in data:
-                data['cloudinary_urls'] = {}
-            data['cloudinary_urls']['original'] = cloudinary_url
-            data['upload_id'] = upload_id
-            
-            # Save updated data.json
-            with open(data_json_path, 'w') as f:
-                json.dump(data, f, indent=4)
-            
-            print(f"✅ Original PNG uploaded and URL stored in data.json: {cloudinary_url}")
-            return cloudinary_url
-        else:
-            print("❌ Failed to upload original PNG to Cloudinary")
-            return None
-            
-    except Exception as e:
-        print(f"❌ Error in upload_original_png_to_cloudinary: {str(e)}")
-        return None
-
 
 
 # Modified pipeline runner with logging support
@@ -296,29 +229,6 @@ def run_pipeline_with_logging(upload_id: str):
             print(f"✅ data.json updated with step results")
             print(f"   Total results: {sum(step_counts.values())} detections")
             
-            # Upload result images to Cloudinary
-            try:
-                print(f"\n☁️  Uploading processing results to Cloudinary...")
-                from api.cloudinary_manager import get_cloudinary_manager
-                cloudinary_manager = get_cloudinary_manager()
-                
-                if cloudinary_manager:
-                    cloudinary_urls = cloudinary_manager.upload_processing_results(step_counts)
-                    
-                    if cloudinary_urls:
-                        # Merge with existing cloudinary_urls (preserve 'original' if it exists)
-                        if 'cloudinary_urls' not in data:
-                            data['cloudinary_urls'] = {}
-                        data['cloudinary_urls'].update(cloudinary_urls)
-                        print(f"✅ Successfully uploaded {len(cloudinary_urls)} images to Cloudinary")
-                    else:
-                        print("⚠️  No images were uploaded to Cloudinary")
-                else:
-                    print("⚠️  Cloudinary not configured - skipping image uploads")
-                    
-            except Exception as e:
-                print(f"⚠️  Error uploading to Cloudinary: {str(e)}")
-
             # Upload Step10.svg to TTF SVG API
             try:
                 print(f"\n📤 Uploading Step10.svg to TTF API...")
@@ -338,7 +248,7 @@ def run_pipeline_with_logging(upload_id: str):
             except Exception as e:
                 print(f"⚠️  Error uploading SVG to TTF API: {str(e)}")
 
-            # Write back to data.json with Cloudinary URLs and SVG URLs
+            # Write back to data.json with SVG URLs
             with open(data_file, 'w') as f:
                 json.dump(data, f, indent=4)
             
@@ -378,7 +288,31 @@ def run_pipeline_with_logging(upload_id: str):
                     
             except Exception as e:
                 print(f"⚠️  Exception in {step}: {e}")
-        
+
+        # After Step12 creates the database record, update it with the SVG URL
+        try:
+            # Re-read data.json to get the tracking_url created by Step12
+            with open(data_file, 'r') as f:
+                data = json.load(f)
+
+            tracking_url = data.get('tracking_url')
+            svg_url = data.get('svg_urls', {}).get('step10')
+
+            if tracking_url and svg_url:
+                print(f"\n📝 Updating database with SVG URL...")
+                from api.cloudinary_manager import update_svg_in_database
+                if update_svg_in_database(tracking_url, svg_url):
+                    print(f"✅ SVG URL saved to database for tracking: {tracking_url}")
+                else:
+                    print(f"⚠️  Failed to update SVG URL in database")
+            else:
+                if not tracking_url:
+                    print(f"⚠️  No tracking_url found - cannot update SVG in database")
+                if not svg_url:
+                    print(f"⚠️  No SVG URL found - cannot update SVG in database")
+        except Exception as e:
+            print(f"⚠️  Error updating SVG URL in database: {e}")
+
         return True, None, None
     else:
         print(f"❌ Pipeline failed at {failed_step}: {error_details}")
@@ -598,15 +532,7 @@ async def process_ai_takeoff_sync(upload_id: str):
                 await log_to_client(upload_id, f"✅ SVG saved to: {svg_path}")
                 
                 svg_size = os.path.getsize(svg_path) if os.path.exists(svg_path) else 0
-                
-                # Convert original SVG to PNG and upload to Cloudinary before pipeline
-                await log_to_client(upload_id, f"🔄 Converting original SVG to PNG and uploading to Cloudinary...")
-                original_png_url = await upload_original_png_to_cloudinary(upload_id, svg_path)
-                if original_png_url:
-                    await log_to_client(upload_id, f"✅ Original PNG uploaded successfully: {original_png_url}")
-                else:
-                    await log_to_client(upload_id, f"⚠️  Failed to upload original PNG to Cloudinary", "warning")
-                
+
                 # Extract text from PDF BEFORE starting the pipeline
                 await log_to_client(upload_id, f"📄 Extracting text from PDF...")
                 try:
@@ -750,20 +676,13 @@ async def process_ai_takeoff_sync(upload_id: str):
                     import json
                     data_results = json.load(f)
 
-                # Get result URL - priority: tracking_url > step10_results > step8_results
+                # Get result URL from tracking_url
                 if 'tracking_url' in data_results:
                     # Use tracking URL from Step11
                     tracking_url = data_results['tracking_url']
                     api_url = os.environ.get('API_URL', 'https://ttfconstruction.com/ai-takeoff-results/create.php')
                     api_base = api_url.replace('/create.php', '')
                     result_url = f"{api_base}/read.php?tracking_url={tracking_url}"
-                elif 'cloudinary_urls' in data_results:
-                    # Use the final image URL from Cloudinary (step10 or step8)
-                    cloudinary_urls = data_results['cloudinary_urls']
-                    if 'step10_results' in cloudinary_urls:
-                        result_url = cloudinary_urls['step10_results']
-                    elif 'step8_results' in cloudinary_urls:
-                        result_url = cloudinary_urls['step8_results']
 
                 # Get SVG URL if available
                 svg_url = None
@@ -796,8 +715,7 @@ async def process_ai_takeoff_sync(upload_id: str):
             if data_results is None:
                 data_results = {
                     'upload_id': upload_id,
-                    'step_results': {},
-                    'cloudinary_urls': {}
+                    'step_results': {}
                 }
 
             email_sent = notify_success(upload_id, data_results, success_logs, success_duration)

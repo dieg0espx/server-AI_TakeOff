@@ -44,11 +44,7 @@ def validate_and_prepare_data(data):
     # Ensure step_results exists
     if 'step_results' not in data:
         data['step_results'] = {}
-    
-    # Ensure cloudinary_urls exists
-    if 'cloudinary_urls' not in data:
-        data['cloudinary_urls'] = {}
-    
+
     # Ensure upload_id exists
     if 'upload_id' not in data:
         data['upload_id'] = 'unknown'
@@ -82,7 +78,7 @@ def send_to_api(data, api_url):
         print(f"   - Jobsite: {data.get('jobsite')}")
         print(f"   - Upload ID: {data.get('upload_id')}")
         print(f"   - Step results: {len(data.get('step_results', {}))} items")
-        print(f"   - Cloudinary URLs: {len(data.get('cloudinary_urls', {}))} items")
+        print(f"   - SVG URLs: {len(data.get('svg_urls', {}))} items")
         print(f"   - Text (for DB): {len(data.get('text', ''))} characters")
         
         # Send POST request
@@ -274,9 +270,9 @@ def run_step12():
             print(f"   - Green Rectangles: {step_results.get('step8_green_rectangles', 0)}")
             print(f"   - Orange Rectangles: {step_results.get('step9_orange_rectangles', 0)}")
         
-        if 'cloudinary_urls' in data:
-            cloudinary_urls = data['cloudinary_urls']
-            print(f"\n☁️  Cloudinary URLs: {len(cloudinary_urls)} images")
+        if 'svg_urls' in data:
+            svg_urls = data['svg_urls']
+            print(f"\n📄 SVG URLs: {len(svg_urls)} items")
         
         if 'rewritten_text' in data:
             print(f"\n📝 Rewritten text: {len(data['rewritten_text'])} characters")
