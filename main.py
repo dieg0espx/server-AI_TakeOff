@@ -28,9 +28,6 @@ from pdf_to_svg_converter import ConvertioConverter
 # Import the PDF text extractor
 from api.pdf_text_extractor import extract_text_from_pdf
 
-# Import the email notifier
-from utils.email_notifier import notify_error, notify_success
-
 # Import log capture
 from utils.log_capture import LogCapture, get_log_storage
 
@@ -487,18 +484,6 @@ async def process_ai_takeoff_sync(upload_id: str, company: str = None, jobsite: 
                 print(f"🚨 PDF DOWNLOAD FAILURE - Upload ID: {upload_id}")
                 print(f"🚨 Error: {error_msg}")
 
-                # Send email notification
-                notify_error(
-                    error_title="PDF Download Failed",
-                    error_message=error_msg,
-                    error_details={
-                        "upload_id": upload_id,
-                        "file_path": file_path if file_path else "None",
-                        "stage": "PDF Download from Google Drive"
-                    },
-                    upload_id=upload_id
-                )
-
                 return {
                     "id": upload_id,
                     "status": "error",
@@ -512,19 +497,6 @@ async def process_ai_takeoff_sync(upload_id: str, company: str = None, jobsite: 
             await log_to_client(upload_id, f"❌ {error_msg}", "error")
             print(f"🚨 PDF DOWNLOAD EXCEPTION - Upload ID: {upload_id}")
             print(f"🚨 Exception: {download_error}")
-
-            # Send email notification
-            notify_error(
-                error_title="PDF Download Exception",
-                error_message=error_msg,
-                error_details={
-                    "upload_id": upload_id,
-                    "stage": "PDF Download from Google Drive",
-                    "exception_type": type(download_error).__name__
-                },
-                exception=download_error,
-                upload_id=upload_id
-            )
 
             return {
                 "id": upload_id,
@@ -595,20 +567,6 @@ async def process_ai_takeoff_sync(upload_id: str, company: str = None, jobsite: 
                         print(f"🚨 Error Details: {error_details}")
                         print(f"🚨 Steps completed before failure: {failed_step}")
 
-                        # Send email notification without logs (keep email lightweight)
-                        notify_error(
-                            error_title=f"Pipeline Failed at {failed_step}",
-                            error_message=error_details,
-                            error_details={
-                                "upload_id": upload_id,
-                                "failed_step": failed_step,
-                                "stage": "AI Processing Pipeline",
-                                "pdf_path": file_path,
-                                "svg_path": svg_path
-                            },
-                            upload_id=upload_id
-                        )
-
                         # Return error response to client
                         return {
                             "id": upload_id,
@@ -628,21 +586,6 @@ async def process_ai_takeoff_sync(upload_id: str, company: str = None, jobsite: 
                     print(f"🚨 PIPELINE EXCEPTION - Upload ID: {upload_id}")
                     print(f"🚨 Exception: {pipeline_error}")
 
-                    # Send email notification
-                    notify_error(
-                        error_title="Pipeline Exception",
-                        error_message=error_msg,
-                        error_details={
-                            "upload_id": upload_id,
-                            "stage": "AI Processing Pipeline",
-                            "exception_type": type(pipeline_error).__name__,
-                            "pdf_path": file_path,
-                            "svg_path": svg_path
-                        },
-                        exception=pipeline_error,
-                        upload_id=upload_id
-                    )
-
                     # Return error response to client
                     return {
                         "id": upload_id,
@@ -661,20 +604,6 @@ async def process_ai_takeoff_sync(upload_id: str, company: str = None, jobsite: 
                 await log_to_client(upload_id, error_msg, "error")
                 print(f"🚨 SVG CONVERSION FAILURE - Upload ID: {upload_id}")
                 print(f"🚨 Exception: {conversion_error}")
-
-                # Send email notification
-                notify_error(
-                    error_title="SVG Conversion Failed",
-                    error_message=error_msg,
-                    error_details={
-                        "upload_id": upload_id,
-                        "stage": "PDF to SVG Conversion (Convertio)",
-                        "exception_type": type(conversion_error).__name__,
-                        "pdf_path": file_path
-                    },
-                    exception=conversion_error,
-                    upload_id=upload_id
-                )
 
                 # Return error response to client
                 return {
@@ -728,57 +657,15 @@ async def process_ai_takeoff_sync(upload_id: str, company: str = None, jobsite: 
             await log_to_client(upload_id, f"⚠️  data.json not found", "warning")
             result = None
 
-        # ALWAYS send success notification email (even if data.json has issues)
-        # This ensures you get notified of every takeoff attempt
-        await log_to_client(upload_id, f"📧 Sending success notification email...")
-        try:
-            log_data = get_log_storage().get_log(upload_id)
-            # Don't include logs in email to keep it lightweight and fast
-            success_logs = None  # Removed to reduce email size
-            success_duration = log_data['duration'] if log_data else None
-
-            # Use data_results if available, otherwise create a minimal results dict
-            if data_results is None:
-                data_results = {
-                    'upload_id': upload_id,
-                    'step_results': {}
-                }
-
-            email_sent = notify_success(upload_id, data_results, success_logs, success_duration)
-
-            if email_sent:
-                await log_to_client(upload_id, f"✅ Success notification email sent to {os.getenv('NOTIFICATION_EMAIL')}")
-            else:
-                await log_to_client(upload_id, f"⚠️  Failed to send success notification email", "warning")
-                print(f"Warning: Email notification was not sent for upload_id: {upload_id}")
-        except Exception as email_error:
-            await log_to_client(upload_id, f"❌ Error sending email notification: {email_error}", "error")
-            print(f"Email notification error: {email_error}")
-            import traceback
-            traceback.print_exc()
-
-        # Clear logs from storage after attempting email
+        # Clear logs from storage
         get_log_storage().clear_log(upload_id)
-        
+
     except Exception as e:
         error_msg = f"❌ Unexpected error in AI processing: {e}"
         await log_to_client(upload_id, error_msg, "error")
         print(f"🚨 UNEXPECTED ERROR - Upload ID: {upload_id}")
         print(f"🚨 Exception: {e}")
         print(f"🚨 Exception Type: {type(e).__name__}")
-
-        # Send email notification
-        notify_error(
-            error_title="Unexpected Processing Error",
-            error_message=error_msg,
-            error_details={
-                "upload_id": upload_id,
-                "stage": "General AI Processing",
-                "exception_type": type(e).__name__
-            },
-            exception=e,
-            upload_id=upload_id
-        )
 
         result = {
             "id": upload_id,
