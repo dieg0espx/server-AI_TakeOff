@@ -26,18 +26,26 @@ def load_json_file(filepath):
 def get_element_key(element, element_type):
     """
     Generate a unique key for an element based on its position.
-    Uses center coordinates rounded to nearest 5 pixels for fuzzy matching.
+    Uses element-specific tolerances based on detection characteristics.
     """
-    if element_type == 'x_shape':
+    if element_type == 'x_shape' or element_type == 'x_shapes':
         x = element.get('center_x', element.get('x', 0))
         y = element.get('center_y', element.get('y', 0))
+        # X-shapes have consistent detection - use 10px tolerance
+        tolerance = 10
+    elif element_type == 'pink_shapes':
+        x = element.get('center_x', element.get('x', 0))
+        y = element.get('center_y', element.get('y', 0))
+        # Pink shapes have moderate variance - use 50px tolerance
+        tolerance = 50
     else:
-        # For rectangles, use center of bounding box
+        # For rectangles (green, orange), use center of bounding box
         x = element.get('x', 0) + element.get('width', 0) / 2
         y = element.get('y', 0) + element.get('height', 0) / 2
+        # Rectangles have high variance - use 75px tolerance
+        tolerance = 75
 
-    # Round to nearest 10 pixels for fuzzy matching
-    return (round(x / 10) * 10, round(y / 10) * 10)
+    return (round(x / tolerance) * tolerance, round(y / tolerance) * tolerance)
 
 
 def find_missing_elements(no_slab_data, with_slab_data, element_type):
@@ -90,43 +98,46 @@ def add_asterisk_to_svg_labels(svg_path, missing_elements_by_type, output_path=N
             svg_content = f.read()
 
         modified = False
+        modified_count = 0
 
-        # Color mapping for label identification
-        color_patterns = {
-            'green': r'fill="(?:#70ff00|#00ff00|green)"',
-            'pink': r'fill="(?:#ff00cd|#ff00ff|pink|magenta)"',
-            'blue': r'fill="(?:#0000ff|blue)"',
-            'orange': r'fill="(?:#fb7905|#ff7f00|orange)"',
-            'red': r'fill="(?:#fb0505|#ff0000|red)"'
+        # Color hex codes used in SVG labels (from style="...fill:#XXXXXX...")
+        color_hex_map = {
+            'blue': ['#0000ff'],
+            'green': ['#70ff00', '#00ff00'],
+            'pink': ['#ff69b4', '#ff00cd', '#ff00ff'],
+            'orange': ['#fb7905', '#ff7f00'],
+            'red': ['#fb0505', '#ff0000']
         }
 
         for color, missing_indices in missing_elements_by_type.items():
             if not missing_indices:
                 continue
 
+            hex_codes = color_hex_map.get(color, [])
+            if not hex_codes:
+                print(f"  ⚠️  Unknown color: {color}")
+                continue
+
             print(f"  Marking {len(missing_indices)} {color} elements: {missing_indices}")
 
             for idx in missing_indices:
-                # Pattern to find text elements with the number
-                # Look for <text ...>NUMBER</text> patterns
-                patterns = [
-                    # Pattern 1: Simple text with number
-                    rf'(<text[^>]*>)({idx})(</text>)',
-                    # Pattern 2: Text with tspan
-                    rf'(<tspan[^>]*>)({idx})(</tspan>)',
-                ]
+                # Pattern to find text elements with specific color AND number
+                # SVG format: <text ... style="...fill:#XXXXXX...">NUMBER</text>
+                for hex_code in hex_codes:
+                    # Match text element with this color and exact number
+                    pattern = rf'(<text[^>]*style="[^"]*fill:{hex_code}[^"]*"[^>]*>)({idx})(</text>)'
 
-                for pattern in patterns:
-                    # Find and replace, adding * after the number
                     new_content = re.sub(
                         pattern,
                         rf'\g<1>\g<2>*\g<3>',
                         svg_content,
-                        count=1  # Only replace first occurrence
+                        count=1
                     )
+
                     if new_content != svg_content:
                         svg_content = new_content
                         modified = True
+                        modified_count += 1
                         break
 
         if output_path is None:
@@ -136,7 +147,7 @@ def add_asterisk_to_svg_labels(svg_path, missing_elements_by_type, output_path=N
             f.write(svg_content)
 
         if modified:
-            print(f"  ✅ Added * markers to {output_path}")
+            print(f"  ✅ Added {modified_count} asterisk markers to {output_path}")
         else:
             print(f"  ⚠️  No labels were modified in {output_path}")
 
