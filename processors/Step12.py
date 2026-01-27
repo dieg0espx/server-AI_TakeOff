@@ -227,6 +227,25 @@ def cleanup_result_files():
             f"{root_dir}/pinkFrames.json",
             f"{root_dir}/x-shores.json",
             f"{root_dir}/square-shores.json",
+            # Slab band comparison directories (will be handled separately)
+        ]
+
+        # Clean up comparison directories
+        comparison_dirs = [
+            f"{files_dir}/tempData/no_slab_band",
+        ]
+
+        import shutil
+        for dir_path in comparison_dirs:
+            if os.path.exists(dir_path):
+                try:
+                    shutil.rmtree(dir_path)
+                    print(f"   ✅ Deleted comparison directory: {dir_path}")
+                except Exception as e:
+                    print(f"   ⚠️  Could not delete {dir_path}: {e}")
+
+        # Continue with files list
+        files_to_delete += [
             f"{root_dir}/orangeFrames.json",
         ]
         

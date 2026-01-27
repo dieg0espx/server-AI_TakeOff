@@ -339,6 +339,37 @@ def run_detection_steps_for_branch(branch_name: str, source_svg: str, output_pre
     return True, step_counts
 
 
+def save_json_results_for_comparison(branch_name: str):
+    """
+    Save JSON detection results to a branch-specific directory for later comparison.
+    This allows us to compare no_slab_band vs with_slab_band results.
+    """
+    import shutil
+
+    temp_data = "files/tempData"
+    branch_dir = f"{temp_data}/{branch_name}"
+
+    # Create branch directory
+    os.makedirs(branch_dir, exist_ok=True)
+
+    # Copy all JSON files to branch directory
+    json_files = [
+        "x-shores.json",
+        "square-shores.json",
+        "pinkFrames.json",
+        "greenFrames.json",
+        "orangeFrames.json"
+    ]
+
+    for json_file in json_files:
+        src = f"{temp_data}/{json_file}"
+        dst = f"{branch_dir}/{json_file}"
+        if os.path.exists(src):
+            shutil.copy(src, dst)
+
+    print(f"  ✅ Saved {branch_name} JSON results to {branch_dir}")
+
+
 def save_branch_results(branch_name: str, step_counts: dict, data: dict):
     """Save branch results to data.json and copy output files"""
     import shutil
@@ -461,6 +492,9 @@ def run_pipeline_with_logging(upload_id: str):
     if success_no_slab:
         data = save_branch_results("no_slab_band", counts_no_slab, data)
         successful_steps += 7  # Steps 4-10
+
+        # Save no_slab_band JSON results for later comparison
+        save_json_results_for_comparison("no_slab_band")
     else:
         print("❌ No slab band detection failed")
         return False, "detection_no_slab_band", "Detection pipeline failed"
@@ -523,6 +557,16 @@ def run_pipeline_with_logging(upload_id: str):
         diff_str = f"+{total_diff}" if total_diff > 0 else str(total_diff)
         print(f"{'TOTAL':<30} {total_no_slab:<10} {total_with_slab:<12} {diff_str:<8}")
         print("=" * 60)
+
+        # Mark elements hidden by slab band with * in the final SVG
+        print(f"\n{'='*60}")
+        print("📝 Marking slab band differences in SVG")
+        print(f"{'='*60}")
+        try:
+            from processors.mark_slab_band_differences import mark_differences
+            mark_differences()
+        except Exception as e:
+            print(f"⚠️  Could not mark slab band differences: {e}")
     else:
         print("⚠️  No slab band results available")
 
