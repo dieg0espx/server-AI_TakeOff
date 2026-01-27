@@ -37,18 +37,22 @@ def validate_and_prepare_data(data):
     # Ensure all required fields are present
     if 'company' not in data or not data['company']:
         data['company'] = 'Unknown Company'
-    
+
     if 'jobsite' not in data or not data['jobsite']:
         data['jobsite'] = 'Unknown Jobsite'
-    
-    # Ensure step_results exists
+
+    # Ensure step_results exists (use no_slab_band results as primary)
     if 'step_results' not in data:
-        data['step_results'] = {}
+        # Try to use results_no_slab_band if available
+        if 'results_no_slab_band' in data:
+            data['step_results'] = data['results_no_slab_band']
+        else:
+            data['step_results'] = {}
 
     # Ensure upload_id exists
     if 'upload_id' not in data:
         data['upload_id'] = 'unknown'
-    
+
     # Add text field from rewritten_text ONLY (for database storage)
     if 'rewritten_text' in data and data['rewritten_text']:
         data['text'] = data['rewritten_text']
@@ -57,13 +61,18 @@ def validate_and_prepare_data(data):
         # Only use rewritten text, not the raw extracted text
         data['text'] = ''
         print(f"   ⚠️  No rewritten_text found - text field will be empty")
-    
+
     # Verify we're not accidentally using extracted_text
     if 'extracted_text' in data and 'rewritten_text' in data:
         if data['extracted_text'] == data['rewritten_text']:
             print(f"   ⚠️  WARNING: extracted_text and rewritten_text are identical!")
             print(f"   This means OpenAI did not properly rewrite the text in Step 11")
-    
+
+    # Handle slab band results
+    if 'slab_band' in data:
+        print(f"   ✅ Slab band results detected")
+        print(f"      - Slab band: {data['slab_band']}")
+
     return data
 
 def send_to_api(data, api_url):
@@ -71,15 +80,19 @@ def send_to_api(data, api_url):
     try:
         # Validate and prepare data
         data = validate_and_prepare_data(data)
-        
+
         print(f"📤 Sending data to API: {api_url}")
         print(f"📋 Data summary:")
         print(f"   - Company: {data.get('company')}")
         print(f"   - Jobsite: {data.get('jobsite')}")
         print(f"   - Upload ID: {data.get('upload_id')}")
-        print(f"   - Step results: {len(data.get('step_results', {}))} items")
+        print(f"   - Step results (primary): {len(data.get('step_results', {}))} items")
         print(f"   - SVG URLs: {len(data.get('svg_urls', {}))} items")
         print(f"   - Text (for DB): {len(data.get('text', ''))} characters")
+
+        # Show slab band results if available
+        if 'slab_band' in data:
+            print(f"   - Slab band results: {data['slab_band']}")
         
         # Send POST request
         response = requests.post(
@@ -163,22 +176,22 @@ def cleanup_result_files():
     """Delete all step result files from the files folder"""
     try:
         print(f"\n🧹 Cleaning up result files...")
-        
+
         # Get the current working directory to determine the correct paths
         current_dir = os.getcwd()
-        
+
         # If we're in the processors directory, use relative paths
         if current_dir.endswith('processors'):
             files_dir = "../files"
         else:
             files_dir = "files"
-        
+
         # Determine the root directory (parent of files folder)
         if current_dir.endswith('processors'):
             root_dir = ".."
         else:
             root_dir = "."
-        
+
         # List of files to delete
         files_to_delete = [
             # Step SVG files
@@ -191,7 +204,14 @@ def cleanup_result_files():
             f"{files_dir}/Step7.svg",
             f"{files_dir}/Step8.svg",
             f"{files_dir}/Step9.svg",
-            f"{files_dir}/step10.svg",
+            f"{files_dir}/Step10.svg",
+            # Dual pipeline SVG files
+            f"{files_dir}/Step3_no_slab_band.svg",
+            f"{files_dir}/Step3_with_slab_band.svg",
+            f"{files_dir}/Step3_with_slab_band_flattened.svg",
+            f"{files_dir}/Step3_with_slab_band_temp.png",
+            f"{files_dir}/Step10_no_slab_band.svg",
+            f"{files_dir}/Step10_with_slab_band.svg",
             # Result PNG files
             f"{files_dir}/Step4-results.png",
             f"{files_dir}/Step5-results.png",
@@ -200,6 +220,8 @@ def cleanup_result_files():
             f"{files_dir}/Step8-results.png",
             f"{files_dir}/Step9-results.png",
             f"{files_dir}/Step10-results.png",
+            f"{files_dir}/Step10_no_slab_band-results.png",
+            f"{files_dir}/Step10_with_slab_band-results.png",
             # JSON result files
             f"{root_dir}/greenFrames.json",
             f"{root_dir}/pinkFrames.json",
@@ -263,12 +285,18 @@ def run_step12():
         # Display data summary
         if 'step_results' in data:
             step_results = data['step_results']
-            print("\n📊 Data to be sent:")
+            print("\n📊 Data to be sent (primary results):")
             print(f"   - Blue X Shapes: {step_results.get('step5_blue_X_shapes', 0)}")
             print(f"   - Red Squares: {step_results.get('step6_red_squares', 0)}")
             print(f"   - Pink Shapes: {step_results.get('step7_pink_shapes', 0)}")
             print(f"   - Green Rectangles: {step_results.get('step8_green_rectangles', 0)}")
             print(f"   - Orange Rectangles: {step_results.get('step9_orange_rectangles', 0)}")
+
+        # Display slab band results if available
+        if 'slab_band' in data:
+            print("\n📊 SLAB BAND Results:")
+            for key, val in data['slab_band'].items():
+                print(f"   - {key}: {val}")
         
         if 'svg_urls' in data:
             svg_urls = data['svg_urls']

@@ -357,9 +357,10 @@ def run_step10():
 
     yellow_frames_data = load_yellow_frames(yellow_frames_path)
     if not yellow_frames_data:
-        return False
-
-    yellow_rectangles = yellow_frames_data.get('shapes', [])
+        # Yellow frames are optional - continue with empty list
+        yellow_rectangles = []
+    else:
+        yellow_rectangles = yellow_frames_data.get('shapes', [])
 
     # Filter out X-shapes that overlap with red squares (silently)
     filtered_x_shapes = filter_overlapping_x_shapes(x_shapes, red_squares)

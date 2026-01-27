@@ -1,8 +1,0 @@
-{
-  "total_shapes": 0,
-  "shapes": [],
-  "metadata": {
-    "description": "Yellow traffic light shape detection results",
-    "format": "x, y coordinates (top-left corner), width, height, center coordinates"
-  }
-}

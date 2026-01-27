@@ -31,6 +31,10 @@ from api.pdf_text_extractor import extract_text_from_pdf
 # Import log capture
 from utils.log_capture import LogCapture, get_log_storage
 
+# Import for SVG/PNG conversion
+import cairosvg
+import asyncio
+
 
 
 # Create FastAPI instance
@@ -81,19 +85,213 @@ def convert_svg_to_png(svg_path: str, png_path: str) -> bool:
         return False
 
 
-# Modified pipeline runner with logging support
-def run_pipeline_with_logging(upload_id: str):
-    """Run the processing pipeline with logging and detailed error tracking"""
-    import sys
-    import os
+# SVG → PNG → SVG Conversion Functions
+def convert_svg_to_png_for_flatten(svg_path: str, png_path: str) -> bool:
+    """Convert SVG to PNG using cairosvg (flattens all layers)"""
+    try:
+        print(f"  🔄 Converting SVG to PNG: {svg_path} → {png_path}")
+        cairosvg.svg2png(url=svg_path, write_to=png_path)
+        if os.path.exists(png_path):
+            print(f"  ✅ PNG created: {png_path} ({os.path.getsize(png_path)} bytes)")
+            return True
+        return False
+    except Exception as e:
+        print(f"  ❌ SVG to PNG conversion failed: {e}")
+        return False
+
+
+async def convert_png_to_svg_async(png_path: str, svg_path: str) -> bool:
+    """Convert PNG back to SVG using Convertio API"""
+    try:
+        print(f"  🔄 Converting PNG to SVG: {png_path} → {svg_path}")
+
+        # Use the same Convertio converter
+        from api.pdf_to_svg_converter import ConvertioConverter
+
+        converter = ConvertioConverter()
+
+        # Start conversion (set output format to SVG)
+        conv_id = await converter.start_conversion()
+        print(f"  📤 Conversion started with ID: {conv_id}")
+
+        # Upload the PNG file
+        await converter.upload_file(conv_id, png_path)
+        print(f"  📤 PNG uploaded to Convertio")
+
+        # Wait for conversion to complete
+        download_url = await converter.check_status(conv_id)
+        print(f"  ✅ Conversion complete, downloading SVG...")
+
+        # Download the converted SVG
+        await converter.download_file(download_url, svg_path)
+
+        if os.path.exists(svg_path):
+            print(f"  ✅ SVG created: {svg_path} ({os.path.getsize(svg_path)} bytes)")
+            return True
+        return False
+
+    except Exception as e:
+        print(f"  ❌ PNG to SVG conversion failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+def convert_png_to_svg_sync(png_path: str, svg_path: str) -> bool:
+    """Synchronous wrapper for PNG to SVG conversion"""
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        result = loop.run_until_complete(convert_png_to_svg_async(png_path, svg_path))
+        loop.close()
+        return result
+    except Exception as e:
+        print(f"  ❌ PNG to SVG sync conversion failed: {e}")
+        return False
+
+
+def flatten_svg_via_png(input_svg: str, output_svg: str) -> bool:
+    """
+    Flatten SVG by converting to PNG and back to SVG.
+    This rasterizes all layers, making overlapping elements truly overlap.
+    """
+    try:
+        print(f"\n🔄 FLATTENING SVG (SVG → PNG → SVG)")
+        print(f"   Input:  {input_svg}")
+        print(f"   Output: {output_svg}")
+
+        # Create temp PNG path
+        temp_png = input_svg.replace('.svg', '_temp.png')
+
+        # Step 1: SVG → PNG
+        if not convert_svg_to_png_for_flatten(input_svg, temp_png):
+            print("  ❌ Failed to convert SVG to PNG")
+            return False
+
+        # Step 2: PNG → SVG
+        if not convert_png_to_svg_sync(temp_png, output_svg):
+            print("  ❌ Failed to convert PNG back to SVG")
+            # Clean up temp file
+            if os.path.exists(temp_png):
+                os.remove(temp_png)
+            return False
+
+        # Clean up temp PNG
+        if os.path.exists(temp_png):
+            os.remove(temp_png)
+            print(f"  🧹 Cleaned up temp file: {temp_png}")
+
+        print(f"✅ SVG flattening complete: {output_svg}")
+        return True
+
+    except Exception as e:
+        print(f"❌ SVG flattening failed: {e}")
+        return False
+
+
+def compare_branch_results(results_no_slab: dict, results_with_slab: dict) -> dict:
+    """
+    Compare results between no slab band and with slab band branches.
+    Calculate the difference for each detection type.
+    """
+    difference = {}
+
+    # Get all keys from both result sets
+    all_keys = set(results_no_slab.keys()) | set(results_with_slab.keys())
+
+    for key in all_keys:
+        no_slab_val = results_no_slab.get(key, 0)
+        with_slab_val = results_with_slab.get(key, 0)
+        diff = with_slab_val - no_slab_val
+
+        difference[key] = {
+            "no_slab_band": no_slab_val,
+            "with_slab_band": with_slab_val,
+            "difference": diff,
+            "change": "increased" if diff > 0 else ("decreased" if diff < 0 else "no change")
+        }
+
+    return difference
+
+
+# Helper function to run a single step
+def run_single_step(step_name: str, step_file: str = None):
+    """Run a single processing step and return success status"""
     import importlib.util
-    import json
-    
-    # Define the processing steps in order (Steps 1-10 only, 11-12 run separately)
-    steps = [
-        "Step1",  # Remove duplicate paths
-        "Step2",  # Modify colors (lightgray and black)
-        "Step3",  # Add background
+
+    if step_file is None:
+        step_file = f"processors/{step_name}.py"
+
+    if not os.path.exists(step_file):
+        print(f"❌ Step file {step_file} not found")
+        return False
+
+    print(f"\n{'='*50}")
+    print(f"Running {step_name}...")
+    print(f"{'='*50}")
+
+    # Add processors directory to Python path
+    processors_dir = os.path.abspath("processors")
+    if processors_dir not in sys.path:
+        sys.path.insert(0, processors_dir)
+
+    try:
+        # Import and run the step
+        spec = importlib.util.spec_from_file_location(step_name, step_file)
+        step_module = importlib.util.module_from_spec(spec)
+        sys.modules[step_name] = step_module
+        spec.loader.exec_module(step_module)
+
+        run_function_name = f'run_{step_name.lower()}'
+        if hasattr(step_module, run_function_name):
+            run_function = getattr(step_module, run_function_name)
+            success = run_function()
+
+            if success:
+                print(f"✅ {step_name} completed successfully")
+                return True
+            else:
+                print(f"❌ {step_name} execution returned False")
+                return False
+        else:
+            print(f"❌ No run function found for {step_name}")
+            return False
+
+    except Exception as e:
+        print(f"❌ Exception in {step_name}: {str(e)}")
+        return False
+
+
+def run_detection_steps_for_branch(branch_name: str, source_svg: str, output_prefix: str = ""):
+    """
+    Run detection steps (4-10) for a specific branch.
+
+    Args:
+        branch_name: Name of the branch (e.g., "no_slab_band" or "with_slab_band")
+        source_svg: Path to the source SVG file to use as Step3 input
+        output_prefix: Prefix for output files (e.g., "slab_" for slab band branch)
+
+    Returns:
+        tuple: (success, step_counts)
+    """
+    import shutil
+
+    print(f"\n{'='*60}")
+    print(f"🔄 Running detection pipeline for: {branch_name}")
+    print(f"   Source: {source_svg}")
+    print(f"{'='*60}")
+
+    # Copy source SVG to Step3.svg so Steps 4-10 use the correct input
+    step3_path = "files/Step3.svg"
+    try:
+        shutil.copy(source_svg, step3_path)
+        print(f"✅ Copied {source_svg} to {step3_path}")
+    except Exception as e:
+        print(f"❌ Failed to copy source SVG: {e}")
+        return False, {}
+
+    # Detection steps (Step4 through Step10)
+    detection_steps = [
         "Step4",  # Apply color coding to specific patterns
         "Step5",  # Detect blue X shapes
         "Step6",  # Detect red squares
@@ -102,218 +300,343 @@ def run_pipeline_with_logging(upload_id: str):
         "Step9",  # Detect orange rectangles
         "Step10", # Draw all containers onto Step2.svg
     ]
-    
-    successful_steps = 0
-    total_steps = len(steps)
+
     step_counts = {}
+
+    for step in detection_steps:
+        success = run_single_step(step)
+        if not success:
+            print(f"❌ Branch '{branch_name}' failed at {step}")
+            return False, step_counts
+
+    # Read counts from JSON files
+    json_files = {
+        'files/tempData/x-shores.json': ('step5_blue_X_shapes', 'total_x_shapes'),
+        'files/tempData/square-shores.json': ('step6_red_squares', 'total_red_squares'),
+        'files/tempData/pinkFrames.json': ('step7_pink_shapes', 'total_pink_shapes'),
+        'files/tempData/greenFrames.json': ('step8_green_rectangles', 'total_rectangles'),
+        'files/tempData/orangeFrames.json': ('step9_orange_rectangles', 'total_rectangles'),
+        'files/tempData/yellowFrames.json': ('step11_yellow_shapes', 'total_shapes')
+    }
+
+    for json_file, (result_key, json_field) in json_files.items():
+        if os.path.exists(json_file):
+            try:
+                with open(json_file, 'r') as f:
+                    data = json.load(f)
+                    if isinstance(data, dict) and json_field in data:
+                        step_counts[result_key] = data[json_field]
+                    else:
+                        step_counts[result_key] = 0
+            except Exception as e:
+                step_counts[result_key] = 0
+        else:
+            step_counts[result_key] = 0
+
+    print(f"\n✅ Branch '{branch_name}' completed successfully")
+    print(f"   Results: {step_counts}")
+
+    return True, step_counts
+
+
+def save_branch_results(branch_name: str, step_counts: dict, data: dict):
+    """Save branch results to data.json and copy output files"""
+    import shutil
+
+    # Note: We don't store individual branch results here anymore
+    # The main pipeline stores step_results (no slab) and slab_band (with slab) directly
+
+    # Copy Step10.svg to branch-specific file
+    step10_source = "files/Step10.svg"
+    step10_dest = f"files/Step10_{branch_name}.svg"
+
+    if os.path.exists(step10_source):
+        try:
+            shutil.copy(step10_source, step10_dest)
+            print(f"✅ Saved {step10_dest}")
+        except Exception as e:
+            print(f"⚠️  Could not save {step10_dest}: {e}")
+
+    # Copy Step10-results.png to branch-specific file
+    png_source = "files/Step10-results.png"
+    png_dest = f"files/Step10_{branch_name}-results.png"
+
+    if os.path.exists(png_source):
+        try:
+            shutil.copy(png_source, png_dest)
+            print(f"✅ Saved {png_dest}")
+        except Exception as e:
+            print(f"⚠️  Could not save {png_dest}: {e}")
+
+    return data
+
+
+# Modified pipeline runner with logging support
+def run_pipeline_with_logging(upload_id: str):
+    """Run the processing pipeline with logging and detailed error tracking.
+
+    This pipeline runs TWO branches after Step 3:
+    1. NO SLAB BAND: Uses Step3.svg directly
+    2. WITH SLAB BAND: Uses Step3_with_slab_band.svg (black elements on top)
+
+    Both branches run Steps 4-10 and produce separate results.
+    """
+    import sys
+    import os
+    import importlib.util
+    import json
+    import shutil
+
+    # Phase 1: Run Steps 1-3 (common to both branches)
+    initial_steps = [
+        "Step1",  # Remove duplicate paths
+        "Step2",  # Modify colors (lightgray and black)
+        "Step3",  # Add background
+    ]
+
+    successful_steps = 0
+    total_steps = len(initial_steps)
     failed_step = None
     error_details = None
     tracking_url = None
-    
-    # Run each step in sequence
-    for i, step in enumerate(steps):
-        try:
-            # Construct the path to the step file
-            step_file = f"processors/{step}.py"
-            
-            if not os.path.exists(step_file):
-                error_msg = f"Step file {step_file} not found"
-                print(f"❌ {error_msg}")
-                failed_step = step
-                error_details = error_msg
-                break
-            
-            print(f"\n{'='*50}")
-            print(f"Running {step}...")
-            print(f"{'='*50}")
-            
-            # Add processors directory to Python path
-            processors_dir = os.path.abspath("processors")
-            if processors_dir not in sys.path:
-                sys.path.insert(0, processors_dir)
-            
-            # Import and run the step
-            spec = importlib.util.spec_from_file_location(step, step_file)
-            step_module = importlib.util.module_from_spec(spec)
-            sys.modules[step] = step_module
-            spec.loader.exec_module(step_module)
-            
-            run_function_name = f'run_{step.lower()}'
-            if hasattr(step_module, run_function_name):
-                run_function = getattr(step_module, run_function_name)
-                success = run_function()
-                
-                if success:
-                    successful_steps += 1
-                    print(f"✅ {step} completed successfully")
-                else:
-                    error_msg = f"{step} execution returned False"
-                    print(f"❌ {error_msg}")
-                    failed_step = step
-                    error_details = error_msg
-                    break
-            else:
-                error_msg = f"No run function found for {step}"
-                print(f"❌ {error_msg}")
-                failed_step = step
-                error_details = error_msg
-                break
-                
-        except Exception as e:
-            error_msg = f"Exception in {step}: {str(e)}"
-            print(f"❌ {error_msg}")
-            failed_step = step
-            error_details = error_msg
-            break
-    
-    # Summary
+
     print(f"\n{'='*60}")
-    print(f"📊 Processing Summary")
+    print("📋 PHASE 1: Running initial steps (1-3)")
     print(f"{'='*60}")
-    print(f"Steps completed: {successful_steps}/{total_steps}")
-    
-    if successful_steps == total_steps:
-        print(f"🎉 All steps completed successfully!")
-        
-        # Update data.json with step counts before running Step11
-        try:
-            print(f"\n{'='*60}")
-            print("📝 Updating data.json with processing results...")
-            print(f"{'='*60}")
-            
-            # Read existing JSON result files to get counts
-            step_counts = {}
-            
-            # Read counts from individual JSON files created by each step
-            # Each step creates a JSON file with a specific structure
-            json_files = {
-                'files/tempData/x-shores.json': ('step5_blue_X_shapes', 'total_x_shapes'),
-                'files/tempData/square-shores.json': ('step6_red_squares', 'total_red_squares'),
-                'files/tempData/pinkFrames.json': ('step7_pink_shapes', 'total_pink_shapes'),
-                'files/tempData/greenFrames.json': ('step8_green_rectangles', 'total_rectangles'),
-                'files/tempData/orangeFrames.json': ('step9_orange_rectangles', 'total_rectangles')
-            }
 
-            for json_file, (result_key, json_field) in json_files.items():
-                if os.path.exists(json_file):
-                    try:
-                        with open(json_file, 'r') as f:
-                            data = json.load(f)
-                            if isinstance(data, dict) and json_field in data:
-                                count = data[json_field]
-                                step_counts[result_key] = count
-                                print(f"   ✅ {result_key}: {count}")
-                            else:
-                                print(f"   ⚠️  {json_file} missing field '{json_field}'")
-                                step_counts[result_key] = 0
-                    except Exception as e:
-                        print(f"   ⚠️  Could not read {json_file}: {e}")
-                        step_counts[result_key] = 0
-                else:
-                    print(f"   ⚠️  {json_file} not found")
-                    step_counts[result_key] = 0
-            
-            # Update data.json with the collected counts
-            data_file = "data.json"
-            if os.path.exists(data_file):
-                with open(data_file, 'r') as f:
-                    data = json.load(f)
-            else:
-                data = {}
-            
-            data["step_results"] = step_counts
-            
-            print(f"✅ data.json updated with step results")
-            print(f"   Total results: {sum(step_counts.values())} detections")
-            
-            # Upload Step10.svg to TTF SVG API
-            try:
-                print(f"\n📤 Uploading Step10.svg to TTF API...")
-                from api.cloudinary_manager import upload_svg_to_api
-                svg_path = "files/Step10.svg"
-                if os.path.exists(svg_path):
-                    svg_url = upload_svg_to_api(svg_path)
-                    if svg_url:
-                        if 'svg_urls' not in data:
-                            data['svg_urls'] = {}
-                        data['svg_urls']['step10'] = svg_url
-                        print(f"✅ Step10.svg uploaded: {svg_url}")
-                    else:
-                        print("⚠️  Failed to upload Step10.svg to TTF API")
-                else:
-                    print("⚠️  Step10.svg not found - skipping SVG upload")
-            except Exception as e:
-                print(f"⚠️  Error uploading SVG to TTF API: {str(e)}")
+    # Run initial steps
+    for step in initial_steps:
+        success = run_single_step(step)
+        if success:
+            successful_steps += 1
+        else:
+            failed_step = step
+            error_details = f"{step} failed"
+            break
 
-            # Write back to data.json with SVG URLs
-            with open(data_file, 'w') as f:
-                json.dump(data, f, indent=4)
-            
-        except Exception as e:
-            print(f"⚠️  Error updating data.json: {e}")
-        
-        # Now run Step11 and Step12 after data is prepared
-        final_steps = ["Step11", "Step12"]
-        
-        for step in final_steps:
-            try:
-                print(f"\n{'='*50}")
-                print(f"Running {step}...")
-                print(f"{'='*50}")
-                
-                step_file = f"processors/{step}.py"
-                if os.path.exists(step_file):
-                    spec = importlib.util.spec_from_file_location(step, step_file)
-                    step_module = importlib.util.module_from_spec(spec)
-                    sys.modules[step] = step_module
-                    spec.loader.exec_module(step_module)
-                    
-                    run_function_name = f'run_{step.lower()}'
-                    if hasattr(step_module, run_function_name):
-                        run_function = getattr(step_module, run_function_name)
-                        success = run_function()
-                        
-                        if success:
-                            successful_steps += 1
-                            print(f"✅ {step} completed successfully")
-                        else:
-                            print(f"⚠️  {step} failed, but pipeline will continue")
-                    else:
-                        print(f"⚠️  No run function found for {step}")
-                else:
-                    print(f"⚠️  {step_file} not found")
-                    
-            except Exception as e:
-                print(f"⚠️  Exception in {step}: {e}")
-
-        # After Step12 creates the database record, update it with the SVG URL
-        try:
-            # Re-read data.json to get the tracking_url created by Step12
-            with open(data_file, 'r') as f:
-                data = json.load(f)
-
-            tracking_url = data.get('tracking_url')
-            svg_url = data.get('svg_urls', {}).get('step10')
-
-            if tracking_url and svg_url:
-                print(f"\n📝 Updating database with SVG URL...")
-                from api.cloudinary_manager import update_svg_in_database
-                if update_svg_in_database(tracking_url, svg_url):
-                    print(f"✅ SVG URL saved to database for tracking: {tracking_url}")
-                else:
-                    print(f"⚠️  Failed to update SVG URL in database")
-            else:
-                if not tracking_url:
-                    print(f"⚠️  No tracking_url found - cannot update SVG in database")
-                if not svg_url:
-                    print(f"⚠️  No SVG URL found - cannot update SVG in database")
-        except Exception as e:
-            print(f"⚠️  Error updating SVG URL in database: {e}")
-
-        return True, None, None
-    else:
+    if failed_step:
+        print(f"\n{'='*60}")
         print(f"❌ Pipeline failed at {failed_step}: {error_details}")
         return False, failed_step, error_details
+
+    # Save a backup of Step3.svg (no slab band version)
+    step3_original = "files/Step3.svg"
+    step3_no_slab = "files/Step3_no_slab_band.svg"
+
+    try:
+        shutil.copy(step3_original, step3_no_slab)
+        print(f"✅ Saved backup: {step3_no_slab}")
+    except Exception as e:
+        print(f"⚠️  Could not backup Step3.svg: {e}")
+
+    # Phase 2: Create slab band version
+    print(f"\n{'='*60}")
+    print("📋 PHASE 2: Creating slab band version")
+    print(f"{'='*60}")
+
+    success = run_single_step("Step3_with_slab_band")
+    if not success:
+        print("⚠️  Step3_with_slab_band failed, continuing with no slab band only")
+        # Continue with just the no slab band version
+
+    # Phase 3: Run detection for NO SLAB BAND branch
+    print(f"\n{'='*60}")
+    print("📋 PHASE 3A: Running detection pipeline (NO SLAB BAND)")
+    print(f"{'='*60}")
+
+    # Load existing data.json
+    data_file = "data.json"
+    if os.path.exists(data_file):
+        with open(data_file, 'r') as f:
+            data = json.load(f)
+    else:
+        data = {}
+
+    success_no_slab, counts_no_slab = run_detection_steps_for_branch(
+        "no_slab_band",
+        step3_no_slab,
+        ""
+    )
+
+    if success_no_slab:
+        data = save_branch_results("no_slab_band", counts_no_slab, data)
+        successful_steps += 7  # Steps 4-10
+    else:
+        print("❌ No slab band detection failed")
+        return False, "detection_no_slab_band", "Detection pipeline failed"
+
+    # Phase 4: Run detection for WITH SLAB BAND branch (if available)
+    step3_slab = "files/Step3_with_slab_band.svg"
+
+    if os.path.exists(step3_slab):
+        print(f"\n{'='*60}")
+        print("📋 PHASE 3B: Running detection pipeline (WITH SLAB BAND)")
+        print(f"{'='*60}")
+
+        # NOTE: No explicit SVG→PNG→SVG flattening needed!
+        # Steps 4-10 already convert SVG→PNG internally using cairosvg for OpenCV processing.
+        # When cairosvg renders the SVG to PNG, layers are automatically flattened,
+        # and the black elements appended at the end render ON TOP.
+        print(f"\n📝 Using slab band SVG directly (flattening happens during detection)")
+        print(f"   Source: {step3_slab}")
+
+        success_with_slab, counts_with_slab = run_detection_steps_for_branch(
+            "with_slab_band",
+            step3_slab,
+            "slab_"
+        )
+
+        if success_with_slab:
+            data = save_branch_results("with_slab_band", counts_with_slab, data)
+            successful_steps += 7  # Steps 4-10 again
+        else:
+            print("⚠️  With slab band detection failed, but no slab band succeeded")
+    else:
+        print("⚠️  Slab band SVG not found, skipping slab band detection")
+        counts_with_slab = {}
+
+    # Use the no_slab_band results as the primary step_results
+    data["step_results"] = counts_no_slab
+
+    # Add slab_band results (simple structure matching step_results)
+    if counts_with_slab:
+        data["slab_band"] = counts_with_slab
+
+        # Print comparison summary
+        print(f"\n{'='*60}")
+        print("📊 RESULTS COMPARISON")
+        print(f"{'='*60}")
+        print(f"\n{'Detection Type':<30} {'Regular':<10} {'Slab Band':<12} {'Diff':<8}")
+        print("-" * 60)
+
+        for key in counts_no_slab.keys():
+            no_slab = counts_no_slab.get(key, 0)
+            with_slab = counts_with_slab.get(key, 0)
+            diff = with_slab - no_slab
+            diff_str = f"+{diff}" if diff > 0 else str(diff)
+            print(f"{key:<30} {no_slab:<10} {with_slab:<12} {diff_str:<8}")
+
+        print("-" * 60)
+        total_no_slab = sum(counts_no_slab.values())
+        total_with_slab = sum(counts_with_slab.values())
+        total_diff = total_with_slab - total_no_slab
+        diff_str = f"+{total_diff}" if total_diff > 0 else str(total_diff)
+        print(f"{'TOTAL':<30} {total_no_slab:<10} {total_with_slab:<12} {diff_str:<8}")
+        print("=" * 60)
+    else:
+        print("⚠️  No slab band results available")
+
+    # Write data.json
+    with open(data_file, 'w') as f:
+        json.dump(data, f, indent=4)
+
+    print(f"\n✅ Both branches completed!")
+    print(f"   Results saved to data.json")
+
+    # Summary
+    print(f"\n{'='*60}")
+    print(f"📊 PIPELINE SUMMARY")
+    print(f"{'='*60}")
+
+    # Print results
+    if 'step_results' in data:
+        print(f"\n📋 Regular Results (step_results):")
+        for key, val in data['step_results'].items():
+            print(f"   - {key}: {val}")
+
+    if 'slab_band' in data:
+        print(f"\n📋 Slab Band Results (slab_band):")
+        for key, val in data['slab_band'].items():
+            print(f"   - {key}: {val}")
+
+    print(f"\n🎉 Pipeline completed successfully!")
+
+    # Upload BOTH Step10 SVGs to TTF SVG API
+    try:
+        print(f"\n📤 Uploading SVGs to TTF API...")
+        from api.cloudinary_manager import upload_svg_to_api
+
+        if 'svg_urls' not in data:
+            data['svg_urls'] = {}
+
+        # Upload no slab band version
+        svg_no_slab = "files/Step10_no_slab_band.svg"
+        if os.path.exists(svg_no_slab):
+            svg_url = upload_svg_to_api(svg_no_slab)
+            if svg_url:
+                data['svg_urls']['step10_no_slab_band'] = svg_url
+                data['svg_urls']['step10'] = svg_url  # Backwards compatibility
+                print(f"✅ Step10_no_slab_band.svg uploaded: {svg_url}")
+            else:
+                print("⚠️  Failed to upload Step10_no_slab_band.svg")
+        else:
+            print(f"⚠️  {svg_no_slab} not found")
+
+        # Upload with slab band version
+        svg_with_slab = "files/Step10_with_slab_band.svg"
+        if os.path.exists(svg_with_slab):
+            svg_url = upload_svg_to_api(svg_with_slab)
+            if svg_url:
+                data['svg_urls']['step10_with_slab_band'] = svg_url
+                print(f"✅ Step10_with_slab_band.svg uploaded: {svg_url}")
+            else:
+                print("⚠️  Failed to upload Step10_with_slab_band.svg")
+        else:
+            print(f"⚠️  {svg_with_slab} not found")
+
+        # Write updated data.json with SVG URLs
+        with open(data_file, 'w') as f:
+            json.dump(data, f, indent=4)
+
+    except Exception as e:
+        print(f"⚠️  Error uploading SVGs to TTF API: {str(e)}")
+
+    # Now run Step11 and Step12 after data is prepared
+    print(f"\n{'='*60}")
+    print("📋 PHASE 4: Running final steps (11-12)")
+    print(f"{'='*60}")
+
+    final_steps = ["Step11", "Step12"]
+
+    for step in final_steps:
+        success = run_single_step(step)
+        if success:
+            successful_steps += 1
+        else:
+            print(f"⚠️  {step} failed, but pipeline will continue")
+
+    # After Step12 creates the database record, update it with the SVG URLs
+    try:
+        # Re-read data.json to get the tracking_url created by Step12
+        with open(data_file, 'r') as f:
+            data = json.load(f)
+
+        tracking_url = data.get('tracking_url')
+
+        if tracking_url:
+            print(f"\n📝 Updating database with SVG URLs...")
+            from api.cloudinary_manager import update_svg_in_database
+
+            # Update with no slab band SVG (primary)
+            svg_url_no_slab = data.get('svg_urls', {}).get('step10_no_slab_band')
+            if svg_url_no_slab:
+                if update_svg_in_database(tracking_url, svg_url_no_slab):
+                    print(f"✅ No slab band SVG URL saved to database")
+                else:
+                    print(f"⚠️  Failed to update no slab band SVG URL in database")
+
+            # Also update with slab band SVG if available
+            svg_url_with_slab = data.get('svg_urls', {}).get('step10_with_slab_band')
+            if svg_url_with_slab:
+                print(f"✅ With slab band SVG URL: {svg_url_with_slab}")
+                # Note: You may want to update database schema to store both URLs
+        else:
+            print(f"⚠️  No tracking_url found - cannot update SVG in database")
+
+    except Exception as e:
+        print(f"⚠️  Error updating SVG URL in database: {e}")
+
+    return True, None, None
 
 # Initialize the PDF to SVG converter
 try:
