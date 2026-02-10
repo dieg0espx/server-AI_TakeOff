@@ -108,3 +108,45 @@ _log_storage = LogStorage()
 def get_log_storage() -> LogStorage:
     """Get the global log storage instance"""
     return _log_storage
+
+
+def parse_logs_to_json(logs: str, start_time: datetime) -> list:
+    """
+    Parse console logs into structured JSON format with timestamps
+
+    Args:
+        logs: Raw log string captured from console
+        start_time: Start time of the processing
+
+    Returns:
+        List of log entries with timestamps
+    """
+    log_entries = []
+    lines = logs.split('\n')
+    current_timestamp = start_time
+
+    for i, line in enumerate(lines):
+        if line.strip():  # Only process non-empty lines
+            # Calculate relative timestamp (each line gets a small increment)
+            # This gives us approximate timing for each log line
+            seconds_offset = i * 0.1  # Approximate 0.1 seconds per line
+            log_timestamp = start_time.timestamp() + seconds_offset
+
+            # Determine log level based on emoji or keywords
+            log_level = "info"
+            if any(indicator in line for indicator in ["❌", "Error", "ERROR", "Failed", "failed"]):
+                log_level = "error"
+            elif any(indicator in line for indicator in ["⚠️", "Warning", "WARNING", "warn"]):
+                log_level = "warning"
+            elif any(indicator in line for indicator in ["✅", "Success", "SUCCESS", "completed", "Completed"]):
+                log_level = "success"
+            elif any(indicator in line for indicator in ["🔄", "Processing", "Running", "Starting"]):
+                log_level = "processing"
+
+            log_entries.append({
+                "timestamp": datetime.fromtimestamp(log_timestamp).isoformat(),
+                "level": log_level,
+                "message": line.strip()
+            })
+
+    return log_entries

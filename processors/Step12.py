@@ -89,6 +89,9 @@ def send_to_api(data, api_url):
         print(f"   - Step results (primary): {len(data.get('step_results', {}))} items")
         print(f"   - SVG URLs: {len(data.get('svg_urls', {}))} items")
         print(f"   - Text (for DB): {len(data.get('text', ''))} characters")
+        print(f"   - Processing logs: {len(data.get('processing_logs', []))} entries")
+        if 'processing_duration' in data:
+            print(f"   - Processing duration: {data.get('processing_duration'):.2f} seconds")
 
         # Show slab band results if available
         if 'slab_band' in data:
@@ -323,7 +326,12 @@ def run_step12():
         
         if 'rewritten_text' in data:
             print(f"\n📝 Rewritten text: {len(data['rewritten_text'])} characters")
-        
+
+        if 'processing_logs' in data:
+            print(f"\n📊 Processing logs: {len(data['processing_logs'])} entries")
+            if 'processing_duration' in data:
+                print(f"   Duration: {data['processing_duration']:.2f} seconds")
+
         # Send to API
         print(f"\n📡 API Endpoint: {API_URL}")
         success, tracking_url = send_to_api(data, API_URL)

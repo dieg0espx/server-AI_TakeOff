@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Step 11: Extract Text from Original PDF and Rewrite Professionally
-Extracts text from the original.pdf using OCR and uses OpenAI to rewrite it professionally
+Extracts text from the original.pdf using OCR and uses Google Gemini to rewrite it professionally
 """
 
 import os
@@ -18,82 +18,120 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from api.pdf_text_extractor import extract_text_from_pdf
 
-def rewrite_text_with_openai(extracted_text: str) -> str:
+def rewrite_text_with_gemini(extracted_text: str) -> str:
     """
-    Use OpenAI API to rewrite the extracted text professionally for scaffolding drawings
-    
+    Use Google Gemini API to rewrite the extracted text professionally for scaffolding drawings
+
     Args:
         extracted_text: Raw OCR text from the PDF
-        
+
     Returns:
         Professionally rewritten text or original text if API call fails
     """
     try:
-        from openai import OpenAI
-        
+        from google import genai
+        from google.genai import types
+
         # Get API key from environment
-        api_key = os.getenv('OPENAI_API_KEY')
+        api_key = os.getenv('GEMINI_API_KEY')
         if not api_key:
-            print("⚠️  OPENAI_API_KEY not found in environment variables")
-            print("   Skipping OpenAI rewriting, using extracted text as-is")
+            print("⚠️  GEMINI_API_KEY not found in environment variables")
+            print("   Skipping Gemini rewriting, using extracted text as-is")
             return extracted_text
-        
-        print("\n🤖 Rewriting text with OpenAI API...")
-        
-        # Initialize OpenAI client
-        client = OpenAI(api_key=api_key)
-        
+
+        print("\n🤖 Rewriting text with Google Gemini API...")
+
+        # Initialize Gemini client
+        client = genai.Client(api_key=api_key)
+
         # Create the prompt for professional rewriting
-        prompt = f"""You are a professional construction documentation specialist. The text below was extracted from a scaffolding/shoring construction drawing using OCR and contains many errors, inconsistent formatting, and poor readability.
+        prompt = f"""You are an expert construction documentation specialist with deep knowledge of scaffolding, shoring, structural engineering, and construction drawings.
 
-Your task: Rewrite this into a clean, professional, well-structured document that:
-1. Fixes all OCR errors and typos
-2. Organizes information into clear sections with headers
-3. Standardizes measurements and technical terms
-4. Removes gibberish and maintains only meaningful content
-5. Uses proper construction industry terminology
-6. Formats lists, specifications, and notes properly
-7. Makes it easy to read and professional
+The text below was extracted from a construction drawing (likely scaffolding/shoring plans) using OCR. It contains technical specifications, measurements, elevations, materials, safety notes, and engineering requirements.
 
-RAW OCR TEXT:
+YOUR TASK: Transform this into a COMPREHENSIVE, DETAILED, PROFESSIONAL construction document that:
+
+1. **EXPAND AND EXPLAIN** - Don't just fix errors, ELABORATE on every detail:
+   - Explain what each measurement means and its purpose
+   - Describe the structural elements and their function
+   - Clarify technical specifications and their significance
+   - Expand on safety requirements and compliance standards
+   - Add context to engineering notes and calculations
+
+2. **ORGANIZE INTO DETAILED SECTIONS** with clear headers:
+   - Project Information (complete details)
+   - Structural Specifications (detailed descriptions)
+   - Material Requirements (comprehensive list with specifications)
+   - Dimensions and Elevations (organized by area/section)
+   - Load Specifications (detailed load calculations)
+   - Installation Requirements (step-by-step guidance)
+   - Safety and Compliance Notes (expanded explanations)
+   - Engineering Requirements (detailed professional requirements)
+   - Quality Standards (material grades and specifications)
+
+3. **BE VERY DETAILED** - Include:
+   - Full explanations of measurements (e.g., "EL. 230.17 elevation" → "Elevation 230.17 feet above datum, indicating the top height of the shoring structure at this location")
+   - Complete material specifications (e.g., "4X6" → "4-inch by 6-inch dimensional lumber joists, heavy-duty structural grade")
+   - Detailed spacing information (e.g., "@ 19.2" O/C" → "Spaced at 19.2 inches on center, providing uniform load distribution")
+   - Comprehensive load ratings (e.g., "10 K/LEG" → "10 kip (10,000 pounds) load capacity per leg")
+
+4. **PROFESSIONAL CONSTRUCTION LANGUAGE**:
+   - Use proper construction and engineering terminology
+   - Explain abbreviations in parentheses
+   - Format measurements consistently
+   - Use industry-standard notation
+
+5. **MAXIMUM DETAIL** - Write as much useful information as possible. The longer and more detailed, the better. Include:
+   - Every dimension with its purpose
+   - Every material with its grade and specification
+   - Every safety note with expanded explanation
+   - Every structural element with its function
+   - Every load rating with context
+
+6. **FIX OCR ERRORS** while maintaining all technical content
+
+IMPORTANT:
+- Write AT LEAST 5-10x more detailed than the original
+- Expand abbreviations and explain technical terms
+- Add context and explanations throughout
+- Be thorough and comprehensive - MORE DETAIL IS BETTER
+- DO NOT summarize or condense - EXPAND and ELABORATE
+
+RAW OCR TEXT FROM CONSTRUCTION DRAWING:
 {extracted_text}
 
-REWRITTEN PROFESSIONAL VERSION:"""
+COMPREHENSIVE DETAILED PROFESSIONAL CONSTRUCTION DOCUMENT:"""
 
-        # Call OpenAI API
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {
-                    "role": "system", 
-                    "content": "You are an expert construction technical writer. You transform messy OCR text from construction drawings into clear, professional documentation. Always rewrite and restructure the content - never return the original text unchanged."
-                },
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.4,  # Slightly higher for more creative rewriting
-            max_tokens=3000   # Increased to allow for more detailed output
+        # Call Gemini API (using gemini-2.5-flash for fast and high-quality processing)
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.5,  # Slightly higher for more detailed creative expansion
+                max_output_tokens=8000,  # Increased significantly for detailed output
+            )
         )
-        
+
         # Extract the rewritten text
-        rewritten_text = response.choices[0].message.content.strip()
-        
-        # Validate that OpenAI actually rewrote the text (not just returned the same)
+        rewritten_text = response.text.strip()
+
+        # Validate that Gemini actually rewrote the text (not just returned the same)
         if rewritten_text == extracted_text or len(rewritten_text) < 50:
-            print("⚠️  OpenAI returned text that appears unchanged or too short")
+            print("⚠️  Gemini returned text that appears unchanged or too short")
             print("   Using extracted text as fallback")
             return extracted_text
-        
-        print("✅ Text successfully rewritten by OpenAI")
+
+        print("✅ Text successfully rewritten by Google Gemini")
         print(f"   Original length: {len(extracted_text)} chars")
         print(f"   Rewritten length: {len(rewritten_text)} chars")
         return rewritten_text
-        
+
     except ImportError:
-        print("⚠️  OpenAI package not installed. Run: pip install openai")
+        print("⚠️  Google Genai package not installed. Run: pip install google-genai")
         print("   Using extracted text as-is")
         return extracted_text
     except Exception as e:
-        print(f"⚠️  Error calling OpenAI API: {e}")
+        print(f"⚠️  Error calling Google Gemini API: {e}")
         print("   Using extracted text as fallback")
         import traceback
         traceback.print_exc()
@@ -102,10 +140,10 @@ REWRITTEN PROFESSIONAL VERSION:"""
 def store_text_in_data_json(extracted_text: str, rewritten_text: str, pdf_path: str):
     """
     Store both the extracted text and rewritten text in data.json file
-    
+
     Args:
         extracted_text: Raw OCR text from the PDF
-        rewritten_text: Professionally rewritten text from OpenAI
+        rewritten_text: Professionally rewritten text from Google Gemini
         pdf_path: Path to the original PDF file
     """
     try:
@@ -170,12 +208,12 @@ def run_step11():
             print("=" * 70)
             print(extracted_text)
             print("=" * 70)
-            
-            # Rewrite text with OpenAI
-            rewritten_text = rewrite_text_with_openai(extracted_text)
-            
+
+            # Rewrite text with Google Gemini
+            rewritten_text = rewrite_text_with_gemini(extracted_text)
+
             print("\n" + "=" * 70)
-            print("✨ PROFESSIONALLY REWRITTEN TEXT (OpenAI)")
+            print("✨ PROFESSIONALLY REWRITTEN TEXT (Google Gemini)")
             print("=" * 70)
             print(rewritten_text)
             print("=" * 70)

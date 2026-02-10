@@ -29,7 +29,7 @@ from pdf_to_svg_converter import ConvertioConverter
 from api.pdf_text_extractor import extract_text_from_pdf
 
 # Import log capture
-from utils.log_capture import LogCapture, get_log_storage
+from utils.log_capture import LogCapture, get_log_storage, parse_logs_to_json
 
 # Import for SVG/PNG conversion
 import cairosvg
@@ -532,31 +532,33 @@ def run_pipeline_with_logging(upload_id: str):
     # Use the no_slab_band results as the primary step_results
     data["step_results"] = counts_no_slab
 
-    # Add slab_band results (simple structure matching step_results)
+    # Keep slab_band and under_slab_band in data.json for internal analysis
+    # but don't send to database
     if counts_with_slab:
         data["slab_band"] = counts_with_slab
 
         # Print comparison summary
         print(f"\n{'='*60}")
-        print("📊 RESULTS COMPARISON")
+        print("📊 RESULTS COMPARISON (for analysis only)")
         print(f"{'='*60}")
-        print(f"\n{'Detection Type':<30} {'Regular':<10} {'Slab Band':<12} {'Diff':<8}")
+        print(f"\n{'Detection Type':<30} {'No Slab':<10} {'With Slab':<12} {'Hidden':<8}")
         print("-" * 60)
 
         for key in counts_no_slab.keys():
             no_slab = counts_no_slab.get(key, 0)
             with_slab = counts_with_slab.get(key, 0)
-            diff = with_slab - no_slab
-            diff_str = f"+{diff}" if diff > 0 else str(diff)
-            print(f"{key:<30} {no_slab:<10} {with_slab:<12} {diff_str:<8}")
+            hidden = no_slab - with_slab  # Elements covered by slab
+            hidden_str = str(hidden) if hidden > 0 else "0"
+            print(f"{key:<30} {no_slab:<10} {with_slab:<12} {hidden_str:<8}")
 
         print("-" * 60)
         total_no_slab = sum(counts_no_slab.values())
         total_with_slab = sum(counts_with_slab.values())
-        total_diff = total_with_slab - total_no_slab
-        diff_str = f"+{total_diff}" if total_diff > 0 else str(total_diff)
-        print(f"{'TOTAL':<30} {total_no_slab:<10} {total_with_slab:<12} {diff_str:<8}")
+        total_hidden = total_no_slab - total_with_slab
+        hidden_str = str(total_hidden) if total_hidden > 0 else "0"
+        print(f"{'TOTAL':<30} {total_no_slab:<10} {total_with_slab:<12} {hidden_str:<8}")
         print("=" * 60)
+        print("Note: Slab band data kept in data.json for internal use only")
 
         # Mark elements hidden by slab band with * in the final SVG
         print(f"\n{'='*60}")
@@ -635,51 +637,18 @@ def run_pipeline_with_logging(upload_id: str):
     except Exception as e:
         print(f"⚠️  Error uploading SVGs to TTF API: {str(e)}")
 
-    # Now run Step11 and Step12 after data is prepared
+    # Now run Step11 (Step12 will run later after logs are saved)
     print(f"\n{'='*60}")
-    print("📋 PHASE 4: Running final steps (11-12)")
+    print("📋 PHASE 4: Running Step11 (text extraction)")
     print(f"{'='*60}")
 
-    final_steps = ["Step11", "Step12"]
+    success = run_single_step("Step11")
+    if success:
+        successful_steps += 1
+    else:
+        print(f"⚠️  Step11 failed, but pipeline will continue")
 
-    for step in final_steps:
-        success = run_single_step(step)
-        if success:
-            successful_steps += 1
-        else:
-            print(f"⚠️  {step} failed, but pipeline will continue")
-
-    # After Step12 creates the database record, update it with the SVG URLs
-    try:
-        # Re-read data.json to get the tracking_url created by Step12
-        with open(data_file, 'r') as f:
-            data = json.load(f)
-
-        tracking_url = data.get('tracking_url')
-
-        if tracking_url:
-            print(f"\n📝 Updating database with SVG URLs...")
-            from api.cloudinary_manager import update_svg_in_database
-
-            # Update with no slab band SVG (primary)
-            svg_url_no_slab = data.get('svg_urls', {}).get('step10_no_slab_band')
-            if svg_url_no_slab:
-                if update_svg_in_database(tracking_url, svg_url_no_slab):
-                    print(f"✅ No slab band SVG URL saved to database")
-                else:
-                    print(f"⚠️  Failed to update no slab band SVG URL in database")
-
-            # Also update with slab band SVG if available
-            svg_url_with_slab = data.get('svg_urls', {}).get('step10_with_slab_band')
-            if svg_url_with_slab:
-                print(f"✅ With slab band SVG URL: {svg_url_with_slab}")
-                # Note: You may want to update database schema to store both URLs
-        else:
-            print(f"⚠️  No tracking_url found - cannot update SVG in database")
-
-    except Exception as e:
-        print(f"⚠️  Error updating SVG URL in database: {e}")
-
+    # SVG URL updates will happen after Step12 in process_ai_takeoff_sync
     return True, None, None
 
 # Initialize the PDF to SVG converter
@@ -924,6 +893,73 @@ async def process_ai_takeoff_sync(upload_id: str, company: str = None, jobsite: 
                     captured_logs = log_capture.get_logs()
                     processing_duration = log_capture.get_duration()
                     get_log_storage().store_log(upload_id, captured_logs, processing_duration)
+
+                    # Parse logs into structured JSON format with timestamps
+                    structured_logs = parse_logs_to_json(captured_logs, log_capture.start_time)
+
+                    # Save structured logs to data.json
+                    data_json_path = os.path.join('data.json')
+                    if os.path.exists(data_json_path):
+                        try:
+                            with open(data_json_path, 'r') as f:
+                                data = json.load(f)
+
+                            data['processing_logs'] = structured_logs
+                            data['processing_duration'] = processing_duration
+                            data['processing_start_time'] = log_capture.start_time.isoformat()
+                            data['processing_end_time'] = log_capture.end_time.isoformat()
+
+                            with open(data_json_path, 'w') as f:
+                                json.dump(data, f, indent=4)
+
+                            print(f"✅ Saved {len(structured_logs)} log entries to data.json")
+                        except Exception as log_error:
+                            print(f"⚠️  Could not save logs to data.json: {log_error}")
+
+                    # Now run Step12 to send data (including logs) to database
+                    if pipeline_success:
+                        print(f"\n{'='*60}")
+                        print("📋 PHASE 5: Sending results to database (Step12)")
+                        print(f"{'='*60}")
+                        try:
+                            from processors.Step12 import run_step12
+                            step12_success = run_step12()
+                            if step12_success:
+                                print("✅ Step12 completed - Results sent to database")
+
+                                # After Step12 creates the database record, update it with SVG URLs
+                                try:
+                                    # Re-read data.json to get the tracking_url created by Step12
+                                    with open('data.json', 'r') as f:
+                                        data_updated = json.load(f)
+
+                                    tracking_url = data_updated.get('tracking_url')
+
+                                    if tracking_url:
+                                        print(f"\n📝 Updating database with SVG URLs...")
+                                        from api.cloudinary_manager import update_svg_in_database
+
+                                        # Update with no slab band SVG (primary)
+                                        svg_url_no_slab = data_updated.get('svg_urls', {}).get('step10_no_slab_band')
+                                        if svg_url_no_slab:
+                                            if update_svg_in_database(tracking_url, svg_url_no_slab):
+                                                print(f"✅ No slab band SVG URL saved to database")
+                                            else:
+                                                print(f"⚠️  Failed to update no slab band SVG URL in database")
+
+                                        # Also update with slab band SVG if available
+                                        svg_url_with_slab = data_updated.get('svg_urls', {}).get('step10_with_slab_band')
+                                        if svg_url_with_slab:
+                                            print(f"✅ With slab band SVG URL: {svg_url_with_slab}")
+                                    else:
+                                        print(f"⚠️  No tracking_url found - cannot update SVG in database")
+                                except Exception as svg_update_error:
+                                    print(f"⚠️  Error updating SVG URL in database: {svg_update_error}")
+                            else:
+                                print("⚠️  Step12 failed - Results not sent to database")
+                        except Exception as step12_error:
+                            print(f"⚠️  Step12 exception: {step12_error}")
+
                     if pipeline_success:
                         await log_to_client(upload_id, f"✅ Processing pipeline completed successfully")
                     else:
