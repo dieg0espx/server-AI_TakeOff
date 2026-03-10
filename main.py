@@ -316,7 +316,9 @@ def run_detection_steps_for_branch(branch_name: str, source_svg: str, output_pre
         'files/tempData/pinkFrames.json': ('step7_pink_shapes', 'total_pink_shapes'),
         'files/tempData/greenFrames.json': ('step8_green_rectangles', 'total_rectangles'),
         'files/tempData/orangeFrames.json': ('step9_orange_rectangles', 'total_rectangles'),
-        'files/tempData/yellowFrames.json': ('step11_yellow_shapes', 'total_shapes')
+        'files/tempData/yellowFrames.json': ('step11_yellow_shapes', 'total_shapes'),
+        'files/tempData/alumBeams16.json': ('alumBeams16', 'alumBeams16'),
+        'files/tempData/alumBeam12.json': ('alumBeam12', 'alumBeam12')
     }
 
     for json_file, (result_key, json_field) in json_files.items():
