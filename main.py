@@ -318,7 +318,15 @@ def run_detection_steps_for_branch(branch_name: str, source_svg: str, output_pre
         'files/tempData/orangeFrames.json': ('step9_orange_rectangles', 'total_rectangles'),
         'files/tempData/yellowFrames.json': ('step11_yellow_shapes', 'total_shapes'),
         'files/tempData/alumBeams16.json': ('alumBeams16', 'alumBeams16'),
-        'files/tempData/alumBeam12.json': ('alumBeam12', 'alumBeam12')
+        'files/tempData/alumBeam12.json': ('alumBeam12', 'alumBeam12'),
+        'files/tempData/alumBeam106.json': ('alumBeam106', 'alumBeam106'),
+        'files/tempData/alumBeam10.json': ('alumBeam10', 'alumBeam10'),
+        'files/tempData/alumBeam9.json': ('alumBeam9', 'alumBeam9'),
+        'files/tempData/alumBeam14.json': ('alumBeam14', 'alumBeam14'),
+        'files/tempData/alumBeam13.json': ('alumBeam13', 'alumBeam13'),
+        'files/tempData/alumBeam7.json': ('alumBeam7', 'alumBeam7'),
+        'files/tempData/alumBeam5.json': ('alumBeam5', 'alumBeam5'),
+        'files/tempData/alumBeam18.json': ('alumBeam18', 'alumBeam18')
     }
 
     for json_file, (result_key, json_field) in json_files.items():

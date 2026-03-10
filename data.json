@@ -10,8 +10,16 @@
         "step8_green_rectangles": 48,
         "step9_orange_rectangles": 2,
         "step11_yellow_shapes": 0,
-        "alumBeams16": 8,
-        "alumBeam12": 1
+        "alumBeams16": 27,
+        "alumBeam12": 19,
+        "alumBeam106": 23,
+        "alumBeam10": 9,
+        "alumBeam9": 18,
+        "alumBeam14": 43,
+        "alumBeam13": 16,
+        "alumBeam7": 12,
+        "alumBeam5": 12,
+        "alumBeam18": 2
     },
     "svg_urls": {
         "step10": "https://ftp-images.ttfconstruction.com/AI-takeOff/02_10_2026_06_51_51.svg",
@@ -28,8 +36,16 @@
         "step8_green_rectangles": 38,
         "step9_orange_rectangles": 2,
         "step11_yellow_shapes": 0,
-        "alumBeams16": 8,
-        "alumBeam12": 1
+        "alumBeams16": 27,
+        "alumBeam12": 19,
+        "alumBeam106": 23,
+        "alumBeam10": 9,
+        "alumBeam9": 18,
+        "alumBeam14": 43,
+        "alumBeam13": 16,
+        "alumBeam7": 12,
+        "alumBeam5": 12,
+        "alumBeam18": 2
     },
     "processing_logs": [
         {

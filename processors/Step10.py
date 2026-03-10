@@ -280,7 +280,7 @@ def convert_svg_to_png(svg_path, png_path):
         traceback.print_exc()
         return False
 
-def mark_alum_beams_by_dimension(svg_content, target_dimension, stroke_color):
+def mark_alum_beams_by_dimension(svg_content, target_dimension, stroke_color, tolerance=0):
     """
     Turn the stroke color of any <path> whose width or height matches target_dimension.
     Returns (updated_svg_content, changed_count).
@@ -291,22 +291,25 @@ def mark_alum_beams_by_dimension(svg_content, target_dimension, stroke_color):
     d_pattern = re.compile(r'\bd="([^"]*)"')
 
     def has_target_dimension(path_d):
+        def matches(value):
+            return abs(value - target_dimension) <= tolerance
+
         # Absolute commands
         m_h_abs = re.search(r'\bM\s*(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\s*H\s*(-?\d+(?:\.\d+)?)\b', path_d)
-        if m_h_abs and abs(float(m_h_abs.group(3)) - float(m_h_abs.group(1))) == target_dimension:
+        if m_h_abs and matches(abs(float(m_h_abs.group(3)) - float(m_h_abs.group(1)))):
             return True
 
         m_v_abs = re.search(r'\bM\s*(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\s*V\s*(-?\d+(?:\.\d+)?)\b', path_d)
-        if m_v_abs and abs(float(m_v_abs.group(3)) - float(m_v_abs.group(2))) == target_dimension:
+        if m_v_abs and matches(abs(float(m_v_abs.group(3)) - float(m_v_abs.group(2)))):
             return True
 
         # Relative commands
         m_h_rel = re.search(r'\bm\s*-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?\s*h\s*(-?\d+(?:\.\d+)?)\b', path_d)
-        if m_h_rel and abs(float(m_h_rel.group(1))) == target_dimension:
+        if m_h_rel and matches(abs(float(m_h_rel.group(1)))):
             return True
 
         m_v_rel = re.search(r'\bm\s*-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?\s*v\s*(-?\d+(?:\.\d+)?)\b', path_d)
-        if m_v_rel and abs(float(m_v_rel.group(1))) == target_dimension:
+        if m_v_rel and matches(abs(float(m_v_rel.group(1)))):
             return True
 
         return False
@@ -343,7 +346,7 @@ def mark_alum_beams_by_dimension(svg_content, target_dimension, stroke_color):
     updated_svg = path_pattern.sub(replace_path, svg_content)
     return updated_svg, changed_count
 
-def update_data_json_with_counts(green_count, pink_count, x_count, red_count, orange_count, yellow_count, alum_beams_16_count, alum_beam_12_count):
+def update_data_json_with_counts(green_count, pink_count, x_count, red_count, orange_count, yellow_count, beam_counts):
     """Update data.json with current step results"""
     try:
         base_dir = Path(__file__).parent.parent
@@ -363,10 +366,9 @@ def update_data_json_with_counts(green_count, pink_count, x_count, red_count, or
             "step7_pink_shapes": pink_count,
             "step8_green_rectangles": green_count,
             "step9_orange_rectangles": orange_count,
-            "step11_yellow_shapes": yellow_count,
-            "alumBeams16": alum_beams_16_count,
-            "alumBeam12": alum_beam_12_count
+            "step11_yellow_shapes": yellow_count
         }
+        data["step_results"].update(beam_counts)
 
         # Write back to data.json
         with open(data_file, 'w') as f:
@@ -377,28 +379,18 @@ def update_data_json_with_counts(green_count, pink_count, x_count, red_count, or
         print(f"⚠️  Error updating data.json: {e}")
         return False
 
-def save_alum_beams_count_json(count):
-    """Save alumBeams16 count into tempData for main pipeline aggregation."""
+def save_beam_counts_json(beam_counts):
+    """Save each beam count into tempData for main pipeline aggregation."""
     try:
         base_dir = Path(__file__).parent.parent
-        output_file = base_dir / "files" / "tempData" / "alumBeams16.json"
-        with open(output_file, 'w') as f:
-            json.dump({"alumBeams16": count}, f, indent=4)
+        temp_data_dir = base_dir / "files" / "tempData"
+        for key, count in beam_counts.items():
+            output_file = temp_data_dir / f"{key}.json"
+            with open(output_file, 'w') as f:
+                json.dump({key: count}, f, indent=4)
         return True
     except Exception as e:
-        print(f"⚠️  Error saving alumBeams16.json: {e}")
-        return False
-
-def save_alum_beam_12_count_json(count):
-    """Save alumBeam12 count into tempData for main pipeline aggregation."""
-    try:
-        base_dir = Path(__file__).parent.parent
-        output_file = base_dir / "files" / "tempData" / "alumBeam12.json"
-        with open(output_file, 'w') as f:
-            json.dump({"alumBeam12": count}, f, indent=4)
-        return True
-    except Exception as e:
-        print(f"⚠️  Error saving alumBeam12.json: {e}")
+        print(f"⚠️  Error saving beam count JSON files: {e}")
         return False
 
 def run_step10():
@@ -467,10 +459,29 @@ def run_step10():
     if not modified_svg:
         return False
 
-    # Mark all beam-like paths with rendered dimension 192.16 (1201 units before scale) in white
-    modified_svg, alum_beams_16_count = mark_alum_beams_by_dimension(modified_svg, 1201, '#ffffff')
-    # Mark all beam-like paths with rendered dimension 23.04 (144 units before scale) in cyan
-    modified_svg, alum_beam_12_count = mark_alum_beams_by_dimension(modified_svg, 144, '#00ffff')
+    # Beam categories and styling rules
+    beam_specs = [
+        ("alumBeams16", 1201, 1, "#ffffff"),
+        ("alumBeam12", 900, 1, "#F54927"),
+        ("alumBeam106", 787, 1, "#FFA805"),
+        ("alumBeam10", 750, 1, "#00C8FF"),
+        ("alumBeam9", 675, 1, "#B52FC4"),
+        ("alumBeam14", 1050, 0, "#1D915C"),
+        ("alumBeam13", 975, 0, "#9CFF9C"),
+        ("alumBeam7", 525, 0, "#FFBC85"),
+        ("alumBeam5", 376, 0, "#4084FF"),
+        ("alumBeam18", 1350, 0, "#FFD400"),
+    ]
+
+    beam_counts = {}
+    for beam_key, beam_dimension, beam_tolerance, beam_color in beam_specs:
+        modified_svg, beam_count = mark_alum_beams_by_dimension(
+            modified_svg,
+            beam_dimension,
+            beam_color,
+            beam_tolerance,
+        )
+        beam_counts[beam_key] = beam_count
 
     # Update data.json with counts
     update_data_json_with_counts(
@@ -480,11 +491,9 @@ def run_step10():
         len(red_squares),
         len(orange_rectangles),
         len(yellow_rectangles),
-        alum_beams_16_count,
-        alum_beam_12_count
+        beam_counts
     )
-    save_alum_beams_count_json(alum_beams_16_count)
-    save_alum_beam_12_count_json(alum_beam_12_count)
+    save_beam_counts_json(beam_counts)
 
     # Save SVG
     success = save_svg_file(modified_svg, output_path)
