@@ -1,0 +1,252 @@
+#!/usr/bin/env python3
+"""
+Step 11: Extract Text from Original PDF and Rewrite Professionally
+Extracts text from the original.pdf using OCR and uses Google Gemini to rewrite it professionally
+"""
+
+import os
+import sys
+import json
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+# Add parent directory to path for imports
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
+from api.pdf_text_extractor import extract_text_from_pdf
+
+def rewrite_text_with_gemini(extracted_text: str) -> str:
+    """
+    Use Google Gemini API to rewrite the extracted text professionally for scaffolding drawings
+
+    Args:
+        extracted_text: Raw OCR text from the PDF
+
+    Returns:
+        Professionally rewritten text or original text if API call fails
+    """
+    try:
+        from google import genai
+        from google.genai import types
+
+        # Get API key from environment
+        api_key = os.getenv('GEMINI_API_KEY')
+        if not api_key:
+            print("⚠️  GEMINI_API_KEY not found in environment variables")
+            print("   Skipping Gemini rewriting, using extracted text as-is")
+            return extracted_text
+
+        print("\n🤖 Rewriting text with Google Gemini API...")
+
+        # Initialize Gemini client
+        client = genai.Client(api_key=api_key)
+
+        # Create the prompt for professional rewriting
+        prompt = f"""You are an expert construction documentation specialist with deep knowledge of scaffolding, shoring, structural engineering, and construction drawings.
+
+The text below was extracted from a construction drawing (likely scaffolding/shoring plans) using OCR. It contains technical specifications, measurements, elevations, materials, safety notes, and engineering requirements.
+
+YOUR TASK: Transform this into a COMPREHENSIVE, DETAILED, PROFESSIONAL construction document that:
+
+1. **EXPAND AND EXPLAIN** - Don't just fix errors, ELABORATE on every detail:
+   - Explain what each measurement means and its purpose
+   - Describe the structural elements and their function
+   - Clarify technical specifications and their significance
+   - Expand on safety requirements and compliance standards
+   - Add context to engineering notes and calculations
+
+2. **ORGANIZE INTO DETAILED SECTIONS** with clear headers:
+   - Project Information (complete details)
+   - Structural Specifications (detailed descriptions)
+   - Material Requirements (comprehensive list with specifications)
+   - Dimensions and Elevations (organized by area/section)
+   - Load Specifications (detailed load calculations)
+   - Installation Requirements (step-by-step guidance)
+   - Safety and Compliance Notes (expanded explanations)
+   - Engineering Requirements (detailed professional requirements)
+   - Quality Standards (material grades and specifications)
+
+3. **BE VERY DETAILED** - Include:
+   - Full explanations of measurements (e.g., "EL. 230.17 elevation" → "Elevation 230.17 feet above datum, indicating the top height of the shoring structure at this location")
+   - Complete material specifications (e.g., "4X6" → "4-inch by 6-inch dimensional lumber joists, heavy-duty structural grade")
+   - Detailed spacing information (e.g., "@ 19.2" O/C" → "Spaced at 19.2 inches on center, providing uniform load distribution")
+   - Comprehensive load ratings (e.g., "10 K/LEG" → "10 kip (10,000 pounds) load capacity per leg")
+
+4. **PROFESSIONAL CONSTRUCTION LANGUAGE**:
+   - Use proper construction and engineering terminology
+   - Explain abbreviations in parentheses
+   - Format measurements consistently
+   - Use industry-standard notation
+
+5. **MAXIMUM DETAIL** - Write as much useful information as possible. The longer and more detailed, the better. Include:
+   - Every dimension with its purpose
+   - Every material with its grade and specification
+   - Every safety note with expanded explanation
+   - Every structural element with its function
+   - Every load rating with context
+
+6. **FIX OCR ERRORS** while maintaining all technical content
+
+IMPORTANT:
+- Write AT LEAST 5-10x more detailed than the original
+- Expand abbreviations and explain technical terms
+- Add context and explanations throughout
+- Be thorough and comprehensive - MORE DETAIL IS BETTER
+- DO NOT summarize or condense - EXPAND and ELABORATE
+
+RAW OCR TEXT FROM CONSTRUCTION DRAWING:
+{extracted_text}
+
+COMPREHENSIVE DETAILED PROFESSIONAL CONSTRUCTION DOCUMENT:"""
+
+        # Call Gemini API (using gemini-2.5-flash for fast and high-quality processing)
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.5,  # Slightly higher for more detailed creative expansion
+                max_output_tokens=8000,  # Increased significantly for detailed output
+            )
+        )
+
+        # Extract the rewritten text
+        rewritten_text = response.text.strip()
+
+        # Validate that Gemini actually rewrote the text (not just returned the same)
+        if rewritten_text == extracted_text or len(rewritten_text) < 50:
+            print("⚠️  Gemini returned text that appears unchanged or too short")
+            print("   Using extracted text as fallback")
+            return extracted_text
+
+        print("✅ Text successfully rewritten by Google Gemini")
+        print(f"   Original length: {len(extracted_text)} chars")
+        print(f"   Rewritten length: {len(rewritten_text)} chars")
+        return rewritten_text
+
+    except ImportError:
+        print("⚠️  Google Genai package not installed. Run: pip install google-genai")
+        print("   Using extracted text as-is")
+        return extracted_text
+    except Exception as e:
+        print(f"⚠️  Error calling Google Gemini API: {e}")
+        print("   Using extracted text as fallback")
+        import traceback
+        traceback.print_exc()
+        return extracted_text
+
+def store_text_in_data_json(extracted_text: str, rewritten_text: str, pdf_path: str):
+    """
+    Store both the extracted text and rewritten text in data.json file
+
+    Args:
+        extracted_text: Raw OCR text from the PDF
+        rewritten_text: Professionally rewritten text from Google Gemini
+        pdf_path: Path to the original PDF file
+    """
+    try:
+        # Read existing data.json if it exists
+        if os.path.exists('data.json'):
+            with open('data.json', 'r') as file:
+                try:
+                    data = json.load(file)
+                except json.JSONDecodeError:
+                    data = {}
+        else:
+            data = {}
+        
+        # Update the data with both texts
+        data['extracted_text'] = extracted_text
+        data['rewritten_text'] = rewritten_text
+        
+        # Write updated data back to data.json
+        with open('data.json', 'w') as file:
+            json.dump(data, file, indent=4)
+        
+        print(f"✅ Extracted and rewritten text successfully stored in data.json")
+        print(f"   - Original text length: {len(extracted_text)} characters")
+        print(f"   - Rewritten text length: {len(rewritten_text)} characters")
+        print(f"   - PDF file: {pdf_path}")
+        
+    except Exception as e:
+        print(f"❌ Error storing text in data.json: {str(e)}")
+
+def run_step14():
+    """
+    Run Step11 processing - extract text from PDF and rewrite professionally
+    """
+    try:
+        print("🚀 Step 11: Extracting and Rewriting Text from PDF")
+        print("=" * 70)
+        
+        # Get the current working directory to determine the correct paths
+        current_dir = os.getcwd()
+        
+        # If we're in the processors directory, use relative paths
+        if current_dir.endswith('processors'):
+            pdf_path = "../files/original.pdf"
+        else:
+            # If we're in the server directory (when called from pipeline), use direct paths
+            pdf_path = "files/original.pdf"
+        
+        # Check if PDF exists
+        if not os.path.exists(pdf_path):
+            print(f"❌ Error: {pdf_path} not found")
+            print("   Please ensure the PDF has been downloaded")
+            return False
+        
+        print(f"📄 Processing PDF: {pdf_path}")
+        
+        # Extract text from the PDF
+        extracted_text = extract_text_from_pdf(pdf_path)
+        
+        if extracted_text:
+            print("\n" + "=" * 70)
+            print("📝 ORIGINAL EXTRACTED TEXT (OCR)")
+            print("=" * 70)
+            print(extracted_text)
+            print("=" * 70)
+
+            # Rewrite text with Google Gemini
+            rewritten_text = rewrite_text_with_gemini(extracted_text)
+
+            print("\n" + "=" * 70)
+            print("✨ PROFESSIONALLY REWRITTEN TEXT (Google Gemini)")
+            print("=" * 70)
+            print(rewritten_text)
+            print("=" * 70)
+            
+            # Store both texts in data.json
+            print("\n💾 Storing extracted and rewritten text in data.json...")
+            store_text_in_data_json(extracted_text, rewritten_text, pdf_path)
+            
+            print(f"\n✅ Step11 completed successfully")
+            print(f"   - Original text: {len(extracted_text)} characters")
+            print(f"   - Rewritten text: {len(rewritten_text)} characters")
+            return True
+        else:
+            print("\n⚠️  No text was extracted from the PDF")
+            print("   This might be a scanned document with poor quality or no text content")
+            # Still return True as this is not a critical failure
+            return True
+        
+    except Exception as e:
+        print(f"❌ Error in Step 11: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+def main():
+    """Main function for standalone execution"""
+    return run_step14()
+
+if __name__ == "__main__":
+    # Change to the server directory to ensure proper file paths
+    server_dir = Path(__file__).parent.parent
+    os.chdir(server_dir)
+    
+    success = main()
+    sys.exit(0 if success else 1)
+

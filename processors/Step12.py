@@ -1,389 +1,122 @@
 #!/usr/bin/env python3
 """
-Step 12: Send Results to API and Cleanup
-Sends processing results to the database and cleans up temporary files
+Mark Slab Band Differences: Add * markers to annotations hidden by slab band.
+
+Simple: Extract all annotation positions from both SVGs, mark those in no_slab
+that don't exist in with_slab.
 """
 
-import os
-import sys
-import json
+import re
 from pathlib import Path
-import requests
-from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
 
-# Add parent directory to path for imports
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+def extract_all_annotation_positions(svg_path):
+    """
+    Extract all annotation positions from SVG.
+    Returns: set of (x, y) positions
+    """
+    positions = set()
 
-def load_data_json(file_path='data.json'):
-    """Load data from data.json file"""
     try:
-        with open(file_path, 'r') as f:
-            return json.load(f)
-    except FileNotFoundError:
-        print(f"❌ Error: {file_path} not found")
-        return None
-    except json.JSONDecodeError as e:
-        print(f"❌ Error: Invalid JSON in {file_path}: {e}")
-        return None
+        with open(svg_path, 'r', encoding='utf-8') as f:
+            svg_content = f.read()
+
+        # Find all text annotations (numbered labels with our colors)
+        # Pattern: <text ... x="X" y="Y" ... style="...fill:#COLOR..."...>NUMBER</text>
+        pattern = r'<text[^>]*x="([^"]+)"[^>]*y="([^"]+)"[^>]*style="[^"]*fill:#(?:0000ff|70ff00|00ff00|ff69b4|ff00cd|fb7905|ff7f00|fb0505|ff0000)[^"]*"[^>]*>\d+\*?</text>'
+
+        for match in re.finditer(pattern, svg_content):
+            x = float(match.group(1))
+            y = float(match.group(2))
+            positions.add((x, y))
+
+        return positions
+
     except Exception as e:
-        print(f"❌ Error reading {file_path}: {e}")
+        print(f"  Error reading {svg_path}: {e}")
         return None
 
-def validate_and_prepare_data(data):
-    """Validate and prepare data with required fields"""
-    # Ensure all required fields are present
-    if 'company' not in data or not data['company']:
-        data['company'] = 'Unknown Company'
 
-    if 'jobsite' not in data or not data['jobsite']:
-        data['jobsite'] = 'Unknown Jobsite'
+def mark_differences(base_dir=None):
+    """
+    Compare both SVGs and mark annotations that don't exist in with_slab_band.
+    """
+    print("=" * 60)
+    print("Marking Slab Band Differences")
+    print("=" * 60)
 
-    # Ensure step_results exists (use no_slab_band results as primary)
-    if 'step_results' not in data:
-        # Try to use results_no_slab_band if available
-        if 'results_no_slab_band' in data:
-            data['step_results'] = data['results_no_slab_band']
-        else:
-            data['step_results'] = {}
-
-    # Ensure upload_id exists
-    if 'upload_id' not in data:
-        data['upload_id'] = 'unknown'
-
-    # Add text field from rewritten_text ONLY (for database storage)
-    if 'rewritten_text' in data and data['rewritten_text']:
-        data['text'] = data['rewritten_text']
-        print(f"   ✅ Using rewritten_text for database ({len(data['text'])} chars)")
+    if base_dir is None:
+        base_dir = Path(__file__).parent.parent
     else:
-        # Only use rewritten text, not the raw extracted text
-        data['text'] = ''
-        print(f"   ⚠️  No rewritten_text found - text field will be empty")
+        base_dir = Path(base_dir)
 
-    # Verify we're not accidentally using extracted_text
-    if 'extracted_text' in data and 'rewritten_text' in data:
-        if data['extracted_text'] == data['rewritten_text']:
-            print(f"   ⚠️  WARNING: extracted_text and rewritten_text are identical!")
-            print(f"   This means OpenAI did not properly rewrite the text in Step 11")
+    svg_no_slab = base_dir / "files" / "Step11_no_slab_band.svg"
+    svg_with_slab = base_dir / "files" / "Step11_with_slab_band.svg"
 
-    # Handle slab band results
-    if 'slab_band' in data:
-        print(f"   ✅ Slab band results detected")
-        print(f"      - Slab band: {data['slab_band']}")
-
-    return data
-
-def send_to_api(data, api_url):
-    """Send data to PHP API endpoint"""
-    try:
-        # Validate and prepare data
-        data = validate_and_prepare_data(data)
-
-        print(f"📤 Sending data to API: {api_url}")
-        print(f"📋 Data summary:")
-        print(f"   - Company: {data.get('company')}")
-        print(f"   - Jobsite: {data.get('jobsite')}")
-        print(f"   - Upload ID: {data.get('upload_id')}")
-        print(f"   - Step results (primary): {len(data.get('step_results', {}))} items")
-        print(f"   - SVG URLs: {len(data.get('svg_urls', {}))} items")
-        print(f"   - Text (for DB): {len(data.get('text', ''))} characters")
-        print(f"   - Processing logs: {len(data.get('processing_logs', []))} entries")
-        if 'processing_duration' in data:
-            print(f"   - Processing duration: {data.get('processing_duration'):.2f} seconds")
-
-        # Show slab band results if available
-        if 'slab_band' in data:
-            print(f"   - Slab band results: {data['slab_band']}")
-        
-        # Send POST request
-        response = requests.post(
-            api_url,
-            json=data,
-            headers={'Content-Type': 'application/json'},
-            timeout=30
-        )
-        
-        # Check response
-        if response.status_code in [200, 201]:
-            result = response.json()
-            if result.get('success'):
-                print(f"✅ Data successfully sent to API!")
-                print(f"   Database Record ID: {result.get('id')}")
-                
-                # Display tracking URL
-                tracking_url = result.get('tracking_url')
-                if tracking_url:
-                    # Extract base URL from API endpoint
-                    api_base = api_url.replace('/create.php', '')
-                    full_tracking_url = f"{api_base}/read.php?tracking_url={tracking_url}"
-                    
-                    print(f"\n🔗 TRACKING URL:")
-                    print(f"   {full_tracking_url}")
-                    print(f"\n   Share this URL to view the results!")
-                
-                if 'data' in result:
-                    data_info = result['data']
-                    print(f"\n   Project Information:")
-                    print(f"   - Company: {data_info.get('company')}")
-                    print(f"   - Jobsite: {data_info.get('jobsite')}")
-                    print(f"\n   Stored counts:")
-                    print(f"   - Blue X Shapes: {data_info.get('blue_x_shapes')}")
-                    print(f"   - Red Squares: {data_info.get('red_squares')}")
-                    print(f"   - Pink Shapes: {data_info.get('pink_shapes')}")
-                    print(f"   - Green Rectangles: {data_info.get('green_rectangles')}")
-                    print(f"   - Orange Rectangles: {data_info.get('orange_rectangles')}")
-                    print(f"   - Total Detections: {data_info.get('total_detections')}")
-                
-                return True, tracking_url
-            else:
-                print(f"❌ API returned error: {result.get('error')}")
-                if 'errors' in result:
-                    for error in result['errors']:
-                        print(f"   - {error}")
-                return False, None
-        else:
-            print(f"❌ API request failed with status code: {response.status_code}")
-            try:
-                error_data = response.json()
-                print(f"   Error: {error_data.get('error', 'Unknown error')}")
-                if 'errors' in error_data:
-                    print("   Validation errors:")
-                    if isinstance(error_data['errors'], list):
-                        for error in error_data['errors']:
-                            print(f"   - {error}")
-                    else:
-                        print(f"   - {error_data['errors']}")
-            except json.JSONDecodeError:
-                print(f"   Response (not JSON): {response.text[:500]}")
-            except Exception as e:
-                print(f"   Could not parse error response: {e}")
-            return False, None
-            
-    except requests.exceptions.Timeout:
-        print("❌ Request timed out after 30 seconds")
-        return False, None
-    except requests.exceptions.ConnectionError:
-        print("❌ Connection error - could not reach the API")
-        print("   Please verify:")
-        print("   - The API URL is correct")
-        print("   - The server is running")
-        print("   - You have internet connectivity")
-        return False, None
-    except Exception as e:
-        print(f"❌ Error sending data to API: {e}")
-        return False, None
-
-def cleanup_result_files():
-    """Delete all step result files from the files folder"""
-    try:
-        print(f"\n🧹 Cleaning up result files...")
-
-        # Get the current working directory to determine the correct paths
-        current_dir = os.getcwd()
-
-        # If we're in the processors directory, use relative paths
-        if current_dir.endswith('processors'):
-            files_dir = "../files"
-        else:
-            files_dir = "files"
-
-        # Determine the root directory (parent of files folder)
-        if current_dir.endswith('processors'):
-            root_dir = ".."
-        else:
-            root_dir = "."
-
-        # List of files to delete
-        files_to_delete = [
-            # Step SVG files
-            f"{files_dir}/Step1.svg",
-            f"{files_dir}/Step2.svg",
-            f"{files_dir}/Step3.svg",
-            f"{files_dir}/Step4.svg",
-            f"{files_dir}/Step5.svg",
-            f"{files_dir}/Step6.svg",
-            f"{files_dir}/Step7.svg",
-            f"{files_dir}/Step8.svg",
-            f"{files_dir}/Step9.svg",
-            f"{files_dir}/Step10.svg",
-            # Dual pipeline SVG files
-            f"{files_dir}/Step3_no_slab_band.svg",
-            f"{files_dir}/Step3_with_slab_band.svg",
-            f"{files_dir}/Step3_with_slab_band_flattened.svg",
-            f"{files_dir}/Step3_with_slab_band_temp.png",
-            f"{files_dir}/Step10_no_slab_band.svg",
-            f"{files_dir}/Step10_with_slab_band.svg",
-            # Result PNG files
-            f"{files_dir}/Step4-results.png",
-            f"{files_dir}/Step5-results.png",
-            f"{files_dir}/Step6-results.png",
-            f"{files_dir}/Step7-results.png",
-            f"{files_dir}/Step8-results.png",
-            f"{files_dir}/Step9-results.png",
-            f"{files_dir}/Step10-results.png",
-            f"{files_dir}/Step10_no_slab_band-results.png",
-            f"{files_dir}/Step10_with_slab_band-results.png",
-            # JSON result files
-            f"{root_dir}/greenFrames.json",
-            f"{root_dir}/pinkFrames.json",
-            f"{root_dir}/x-shores.json",
-            f"{root_dir}/square-shores.json",
-            # Slab band comparison directories (will be handled separately)
-        ]
-
-        # Clean up comparison directories
-        comparison_dirs = [
-            f"{files_dir}/tempData/no_slab_band",
-        ]
-
-        import shutil
-        for dir_path in comparison_dirs:
-            if os.path.exists(dir_path):
-                try:
-                    shutil.rmtree(dir_path)
-                    print(f"   ✅ Deleted comparison directory: {dir_path}")
-                except Exception as e:
-                    print(f"   ⚠️  Could not delete {dir_path}: {e}")
-
-        # Continue with files list
-        files_to_delete += [
-            f"{root_dir}/orangeFrames.json",
-        ]
-        
-        deleted_count = 0
-        for file_path in files_to_delete:
-            if os.path.exists(file_path):
-                try:
-                    os.remove(file_path)
-                    deleted_count += 1
-                    print(f"   ✅ Deleted: {os.path.basename(file_path)}")
-                except Exception as e:
-                    print(f"   ⚠️  Could not delete {os.path.basename(file_path)}: {e}")
-        
-        print(f"\n✅ Cleaned up {deleted_count} result files")
-        return True
-        
-    except Exception as e:
-        print(f"❌ Error during cleanup: {e}")
+    if not svg_no_slab.exists():
+        print(f"  ⚠️  {svg_no_slab} not found")
         return False
+
+    if not svg_with_slab.exists():
+        print(f"  ⚠️  {svg_with_slab} not found")
+        return False
+
+    # Extract ALL annotation positions from both SVGs
+    print(f"  Reading: {svg_no_slab.name}")
+    positions_no_slab = extract_all_annotation_positions(svg_no_slab)
+
+    print(f"  Reading: {svg_with_slab.name}")
+    positions_with_slab = extract_all_annotation_positions(svg_with_slab)
+
+    if positions_no_slab is None or positions_with_slab is None:
+        return False
+
+    print(f"  No slab band: {len(positions_no_slab)} annotations")
+    print(f"  With slab band: {len(positions_with_slab)} annotations")
+
+    # Find positions in no_slab that are NOT in with_slab
+    missing_positions = positions_no_slab - positions_with_slab
+
+    print(f"  Missing (hidden by slab): {len(missing_positions)} annotations")
+
+    if len(missing_positions) == 0:
+        print("  No differences found - no markers to add")
+        return True
+
+    # Read the SVG and add asterisks to annotations at missing positions
+    with open(svg_no_slab, 'r', encoding='utf-8') as f:
+        svg_content = f.read()
+
+    modified_count = 0
+
+    for (x, y) in missing_positions:
+        # Find the text element at this exact position and add *
+        pattern = rf'(<text[^>]*x="{x}"[^>]*y="{y}"[^>]*>)(\d+)(</text>)'
+
+        new_content = re.sub(pattern, rf'\g<1>\g<2>*\g<3>', svg_content, count=1)
+
+        if new_content != svg_content:
+            svg_content = new_content
+            modified_count += 1
+
+    # Save the modified SVG
+    with open(svg_no_slab, 'w', encoding='utf-8') as f:
+        f.write(svg_content)
+
+    print(f"\n  ✅ Added {modified_count} asterisk markers to {svg_no_slab.name}")
+    print("=" * 60)
+    return True
+
 
 def run_step12():
-    """
-    Run Step12 processing - send results to API and cleanup
-    """
-    try:
-        print("🚀 Step 12: Sending Results to API and Cleanup")
-        print("=" * 70)
-        
-        # API endpoint URL - get from environment or use default
-        API_URL = os.environ.get('API_URL', 'https://ttfconstruction.com/ai-takeoff-results/create.php')
-        
-        # Get the current working directory to determine the correct paths
-        current_dir = os.getcwd()
-        
-        # If we're in the processors directory, use relative paths
-        if current_dir.endswith('processors'):
-            data_file = "../data.json"
-        else:
-            # If we're in the server directory (when called from pipeline), use direct paths
-            data_file = "data.json"
-        
-        # Check if data.json exists
-        if not os.path.exists(data_file):
-            print(f"❌ Error: {data_file} not found")
-            print("   Please run the processing pipeline first to generate data.json")
-            return False
-        
-        # Load data.json
-        print(f"📄 Loading {data_file}...")
-        data = load_data_json(data_file)
-        if not data:
-            return False
-        
-        print("✅ data.json loaded successfully")
-        
-        # Display data summary
-        if 'step_results' in data:
-            step_results = data['step_results']
-            print("\n📊 Data to be sent (primary results):")
-            print(f"   - Blue X Shapes: {step_results.get('step5_blue_X_shapes', 0)}")
-            print(f"   - Red Squares: {step_results.get('step6_red_squares', 0)}")
-            print(f"   - Pink Shapes: {step_results.get('step7_pink_shapes', 0)}")
-            print(f"   - Green Rectangles: {step_results.get('step8_green_rectangles', 0)}")
-            print(f"   - Orange Rectangles: {step_results.get('step9_orange_rectangles', 0)}")
+    """Pipeline entry point for Step11: mark slab band differences."""
+    return mark_differences()
 
-        # Display slab band results if available
-        if 'slab_band' in data:
-            print("\n📊 SLAB BAND Results:")
-            for key, val in data['slab_band'].items():
-                print(f"   - {key}: {val}")
-        
-        if 'svg_urls' in data:
-            svg_urls = data['svg_urls']
-            print(f"\n📄 SVG URLs: {len(svg_urls)} items")
-        
-        if 'rewritten_text' in data:
-            print(f"\n📝 Rewritten text: {len(data['rewritten_text'])} characters")
 
-        if 'processing_logs' in data:
-            print(f"\n📊 Processing logs: {len(data['processing_logs'])} entries")
-            if 'processing_duration' in data:
-                print(f"   Duration: {data['processing_duration']:.2f} seconds")
+def run_mark_slab_band_differences():
+    """Legacy entry point."""
+    return mark_differences()
 
-        # Send to API
-        print(f"\n📡 API Endpoint: {API_URL}")
-        success, tracking_url = send_to_api(data, API_URL)
-        
-        if success:
-            print("\n🎉 Results successfully sent to API and stored in database!")
-            
-            # Save tracking URL to data.json for later retrieval
-            if tracking_url:
-                try:
-                    data['tracking_url'] = tracking_url
-                    with open(data_file, 'w') as f:
-                        json.dump(data, f, indent=4)
-                    print(f"✅ Tracking URL saved to {data_file}")
-                except Exception as e:
-                    print(f"⚠️  Could not save tracking URL to data.json: {e}")
-            
-            # Clean up result files after successful storage
-            cleanup_result_files()
-            
-            # Display final tracking URL prominently
-            if tracking_url:
-                api_base = API_URL.replace('/create.php', '')
-                full_tracking_url = f"{api_base}/read.php?tracking_url={tracking_url}"
-                
-                print("\n" + "=" * 70)
-                print("🔗 RESULTS URL (Share this link to view the results)")
-                print("=" * 70)
-                print(f"\n{full_tracking_url}\n")
-                print("=" * 70)
-            
-            return True
-        else:
-            print("\n⚠️  Failed to send results to API")
-            print("   The pipeline completed successfully, but results were not stored in the database")
-            print("   Result files were NOT deleted (to allow retry)")
-            return False
-        
-    except Exception as e:
-        print(f"❌ Error in Step 12: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
-
-def main():
-    """Main function for standalone execution"""
-    return run_step12()
 
 if __name__ == "__main__":
-    # Change to the server directory to ensure proper file paths
-    server_dir = Path(__file__).parent.parent
-    os.chdir(server_dir)
-    
-    success = main()
-    sys.exit(0 if success else 1)
+    mark_differences()

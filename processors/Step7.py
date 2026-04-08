@@ -1,21 +1,125 @@
 #!/usr/bin/env python3
 """
-Step7: Keep only pink (#ff00cd) shapes, remove all other colors
-Uses OpenCV contour detection to count individual pink shapes
+Contour-based Object Detection for Red Squares (#fb0505)
+Uses OpenCV contour detection to find individual red squares with color #fb0505 on black background
 """
 
 import re
-import math
 import os
-import sys
 import cv2
 import numpy as np
+from pathlib import Path
+import argparse
 import cairosvg
 import io
-from PIL import Image
 import json
+from PIL import Image
+import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
+
+# Shores pattern for detecting specific path elements
+shores = re.compile(
+    r'<path[^>]+d="[^"]*m\s*(-?\d+),(-?\d+)\s+('
+    r'-?(33|34),-?(33|34)|'
+    r'-?(33|34),(33|34)|'
+    r'(33|34),-?(33|34)|'
+    r'(33|34),(33|34))[^"]*"[^>]*>'
+)
+
+def save_red_squares_to_json(red_squares_data, output_path):
+    """Save red squares data to JSON file"""
+    try:
+        # Create the JSON structure
+        json_data = {
+            "total_red_squares": len(red_squares_data),
+            "red_squares": red_squares_data
+        }
+        
+        # Write to JSON file
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(json_data, f, indent=2, ensure_ascii=False)
+        
+        print(f"Red squares data saved to: {output_path}")
+        return True
+    except Exception as e:
+        print(f"Error saving red squares data to JSON: {e}")
+        return False
+
+def split_elongated_squares(squares_data, aspect_ratio_threshold=2.0):
+    """Split squares that are too elongated (likely 2 or more stacked) into separate squares"""
+    new_squares = []
+    split_count = 0
+
+    for square in squares_data:
+        width = square['width']
+        height = square['height']
+        aspect_ratio = max(width, height) / min(width, height) if min(width, height) > 0 else 1
+
+        # If aspect ratio is too high, split the rectangle
+        if aspect_ratio >= aspect_ratio_threshold:
+            split_count += 1
+            x = square['x']
+            y = square['y']
+
+            # Split into 2 parts (not more)
+            num_splits = 2
+
+            # Determine if it's horizontal or vertical
+            if width > height:
+                # Split horizontally into multiple squares
+                new_width = width / num_splits
+
+                for i in range(num_splits):
+                    square_split = {
+                        'x': x + (i * new_width),
+                        'y': y,
+                        'width': new_width,
+                        'height': height,
+                        'center_x': x + (i * new_width) + new_width / 2,
+                        'center_y': y + height / 2,
+                        'area': new_width * height,
+                        'split_from': square['id']
+                    }
+                    new_squares.append(square_split)
+
+                print(f"  Split square {square['id']} (horizontal {width:.1f}x{height:.1f}) into {num_splits} squares")
+            else:
+                # Split vertically into multiple squares
+                new_height = height / num_splits
+
+                for i in range(num_splits):
+                    square_split = {
+                        'x': x,
+                        'y': y + (i * new_height),
+                        'width': width,
+                        'height': new_height,
+                        'center_x': x + width / 2,
+                        'center_y': y + (i * new_height) + new_height / 2,
+                        'area': width * new_height,
+                        'split_from': square['id']
+                    }
+                    new_squares.append(square_split)
+
+                print(f"  Split square {square['id']} (vertical {width:.1f}x{height:.1f}) into {num_splits} squares")
+        else:
+            # Keep the original square
+            new_squares.append(square)
+
+    # Re-number all squares
+    for i, square in enumerate(new_squares):
+        square['id'] = i + 1
+        # Remove split_from if it exists and update contours_count if not present
+        if 'split_from' in square:
+            square.pop('split_from', None)
+        if 'contours_count' not in square:
+            square['contours_count'] = 1
+
+    if split_count > 0:
+        print(f"\n✓ Split {split_count} elongated squares into {len(new_squares) - len(squares_data) + split_count} new squares")
+        print(f"  Total squares after splitting: {len(new_squares)}")
+
+    return new_squares
 
 def svg_to_image(svg_path, output_path=None):
     """Convert SVG to PIL Image"""
@@ -29,734 +133,476 @@ def svg_to_image(svg_path, output_path=None):
         if output_path:
             # Save as PNG if output path is provided
             image.save(output_path, 'PNG')
+
             print(f"SVG converted and saved as: {output_path}")
 
         return image
     except Exception as e:
-        print(f"Error converting SVG to image: {e}")
+
+        print(f"Error converting SVG to image: {e}", "error")
         return None
 
-
-def detect_pink_shapes(image_path, output_path='results.png'):
-    """Detect individual pink shapes using contour detection"""
-
+def detect_red_squares(image_path, output_path='results.png', json_output_path=None):
+    """Detect individual red squares with color #fb0505 using contour detection"""
+    
     print(f"Processing image: {image_path}")
-
+    
     # Check if input is SVG and convert if needed
     if str(image_path).lower().endswith('.svg'):
+        
         print("Converting SVG to image for processing...")
-        pil_image = svg_to_image(image_path)
+        pil_image = svg_to_image(str(image_path))
         if pil_image is None:
             return 0, []
-
+        
         # Convert PIL Image to OpenCV format
         img = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
     else:
         # Read image directly if it's not SVG
         img = cv2.imread(str(image_path))
-
+    
     if img is None:
-        print(f"Error: Could not read image {image_path}")
+        
+        print(f"Error: Could not read image {image_path}", "error")
         return 0, []
-
+    
+    print(f"Image loaded successfully: {img.shape}")
+    
     # Convert to HSV for better color detection
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-
-    # Define pink color range in HSV for #ff00cd (RGB: 255, 0, 205 = HSV: 310°, 100%, 100%)
-    # In OpenCV HSV: H ranges 0-180, S and V range 0-255
-    # 310° / 2 = 155 in OpenCV
-    # We need to use two ranges because pink wraps around the hue circle
-    lower_pink1 = np.array([140, 50, 50])   # Lower magenta/pink (wider range)
-    upper_pink1 = np.array([170, 255, 255])   # Upper magenta/pink
-
-    lower_pink2 = np.array([0, 50, 50])     # Lower red/pink (wrapping, wider range)
-    upper_pink2 = np.array([15, 255, 255])    # Upper red/pink (wrapping)
-
-    # Create mask for pink objects (combine both ranges)
-    pink_mask1 = cv2.inRange(hsv, lower_pink1, upper_pink1)
-    pink_mask2 = cv2.inRange(hsv, lower_pink2, upper_pink2)
-    pink_mask = cv2.bitwise_or(pink_mask1, pink_mask2)
-
+    
+    # Define specific red color #fb0505 in HSV
+    # Convert #fb0505 from RGB to HSV
+    # #fb0505 in RGB is (251, 5, 5)
+    # OpenCV uses BGR, so it's (5, 5, 251)
+    target_color_bgr = np.array([5, 5, 251], dtype=np.uint8)
+    target_color_hsv = cv2.cvtColor(target_color_bgr.reshape(1, 1, 3), cv2.COLOR_BGR2HSV)
+    target_h, target_s, target_v = target_color_hsv[0, 0]
+    
+    print(f"Target HSV values: H={target_h}, S={target_s}, V={target_v}")
+    
+    # Create a wider range around the target color for better detection
+    # Allow more tolerance for slight variations and lighting differences
+    tolerance_h = 30  # Increased hue tolerance
+    tolerance_s = 150  # Increased saturation tolerance  
+    tolerance_v = 150  # Increased value tolerance
+    
+    # Fix overflow issues by using proper data types
+    lower_red = np.array([
+        max(0, int(target_h) - tolerance_h), 
+        max(0, int(target_s) - tolerance_s), 
+        max(0, int(target_v) - tolerance_v)
+    ], dtype=np.uint8)
+    
+    upper_red = np.array([
+        min(180, int(target_h) + tolerance_h), 
+        min(255, int(target_s) + tolerance_s), 
+        min(255, int(target_v) + tolerance_v)
+    ], dtype=np.uint8)
+    
+    print(f"HSV range: Lower={lower_red}, Upper={upper_red}")
+    
+    # Create mask for the specific red color
+    red_mask = cv2.inRange(hsv, lower_red, upper_red)
+    
+    # Count non-zero pixels in mask
+    mask_pixels = cv2.countNonZero(red_mask)
+    print(f"HSV mask pixels: {mask_pixels}")
+    
+    # If HSV detection fails, try RGB-based detection as fallback
+    if mask_pixels < 50:  # Reduced threshold
+        # Convert to RGB for alternative detection
+        rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        
+        # Define target color in RGB
+        target_rgb = np.array([251, 5, 5])  # #fb0505 in RGB
+        
+        # Create tolerance for RGB detection
+        tolerance_rgb = 50  # Increased tolerance
+        
+        # Create RGB mask
+        lower_rgb = np.maximum(0, target_rgb - tolerance_rgb)
+        upper_rgb = np.minimum(255, target_rgb + tolerance_rgb)
+        
+        print(f"RGB range: Lower={lower_rgb}, Upper={upper_rgb}")
+        
+        # Create mask for red objects in RGB
+        red_mask_rgb = cv2.inRange(rgb, lower_rgb, upper_rgb)
+        
+        rgb_mask_pixels = cv2.countNonZero(red_mask_rgb)
+        print(f"RGB mask pixels: {rgb_mask_pixels}")
+        
+        # Use the better mask
+        if rgb_mask_pixels > mask_pixels:
+            red_mask = red_mask_rgb
+            mask_pixels = rgb_mask_pixels
+            print("Using RGB mask")
+        else:
+            print("Using HSV mask")
+    
+    # Save debug mask
+    debug_mask_path = output_path.replace('.png', '_mask.png')
+    cv2.imwrite(debug_mask_path, red_mask)
+    print(f"Debug mask saved to: {debug_mask_path}")
+    
     # Apply morphological operations to clean up the mask
     kernel = np.ones((3,3), np.uint8)
-    pink_mask = cv2.morphologyEx(pink_mask, cv2.MORPH_CLOSE, kernel)
-    pink_mask = cv2.morphologyEx(pink_mask, cv2.MORPH_OPEN, kernel)
-
+    red_mask = cv2.morphologyEx(red_mask, cv2.MORPH_CLOSE, kernel)
+    red_mask = cv2.morphologyEx(red_mask, cv2.MORPH_OPEN, kernel)
+    
     # Find contours
-    contours, _ = cv2.findContours(pink_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
+    contours, _ = cv2.findContours(red_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    print(f"Total contours found: {len(contours)}")
+    
     # Filter contours based on area and shape
     valid_contours = []
-    for contour in contours:
+    for i, contour in enumerate(contours):
         area = cv2.contourArea(contour)
-
-        # Filter by area (adjust these values based on your shapes)
-        if 10 < area < 50000:  # Very broad range to catch all potential shapes
-            # Get bounding rectangle
-            x, y, w, h = cv2.boundingRect(contour)
-
-            # Check aspect ratio (diagonal lines can have various aspect ratios)
-            aspect_ratio = w / h if h > 0 else 0
-            # Allow for various shapes
-            if 0.2 < aspect_ratio < 5.0:
+        
+        # Print all contours for debugging
+        x, y, w, h = cv2.boundingRect(contour)
+        aspect_ratio = w / h if h > 0 else 0
+        
+        # Filter by area (adjust these values based on your square sizes)
+        if 5 < area < 10000:  # Even broader range to catch all potential squares
+            # Check aspect ratio (squares should be roughly square)
+            # Ensure width/height ratio is within 3.0 tolerance (very lenient)
+            if 0.3 < aspect_ratio < 3.0:  # Very lenient aspect ratio
                 # Additional check: ensure reasonable size
-                if w >= 10 and h >= 10:  # Minimum size requirement
+                if w >= 2 and h >= 2:  # Very reduced minimum size requirement
                     valid_contours.append((contour, x, y, w, h, area))
-
+                    print(f"Contour {i}: Area={area:.1f}, Size={w}x{h}, Aspect={aspect_ratio:.2f} - ACCEPTED")
+                else:
+                    print(f"Contour {i}: Area={area:.1f}, Size={w}x{h}, Aspect={aspect_ratio:.2f} - REJECTED (size)")
+            else:
+                print(f"Contour {i}: Area={area:.1f}, Size={w}x{h}, Aspect={aspect_ratio:.2f} - REJECTED (aspect)")
+        else:
+            print(f"Contour {i}: Area={area:.1f}, Size={w}x{h}, Aspect={aspect_ratio:.2f} - REJECTED (area filter)")
+    
     print(f"Found {len(valid_contours)} initial contours")
-
-    # Group nearby contours to identify individual shapes
+    
+    # Group nearby contours to identify individual squares
     if len(valid_contours) > 0:
         # Sort by area to prioritize larger contours
         valid_contours.sort(key=lambda x: x[5], reverse=True)
-
+        
         # Group contours that are close to each other
         grouped_contours = []
         used_indices = set()
-
+        
         for i, (contour, x, y, w, h, area) in enumerate(valid_contours):
             if i in used_indices:
                 continue
-
+                
             # Find contours that are close to this one
             nearby_contours = [(contour, x, y, w, h, area)]
             used_indices.add(i)
-
+            
             center_x = x + w/2
             center_y = y + h/2
-
+            
             for j, (contour2, x2, y2, w2, h2, area2) in enumerate(valid_contours):
                 if j in used_indices:
                     continue
-
+                    
                 center_x2 = x2 + w2/2
                 center_y2 = y2 + h2/2
-
+                
                 # Calculate distance between centers
                 distance = ((center_x - center_x2)**2 + (center_y - center_y2)**2)**0.5
-
-                # If contours are very close, group them
-                if distance < 25:  # Adjust based on your shape spacing
+                
+                # If contours are very close, group them (much stricter for squares)
+                if distance < 20:  # Increased from 15 to 20 for more grouping
                     nearby_contours.append((contour2, x2, y2, w2, h2, area2))
                     used_indices.add(j)
-
+            
             # Calculate combined bounding box for the group
             if nearby_contours:
                 min_x = min(c[1] for c in nearby_contours)
                 min_y = min(c[2] for c in nearby_contours)
                 max_x = max(c[1] + c[3] for c in nearby_contours)
                 max_y = max(c[2] + c[4] for c in nearby_contours)
-
+                
                 group_w = max_x - min_x
                 group_h = max_y - min_y
-
-                # Apply aspect ratio constraint to grouped bounding boxes
+                
+                # Apply aspect ratio constraint to grouped bounding boxes too
                 group_aspect_ratio = group_w / group_h if group_h > 0 else 0
-                if 0.2 < group_aspect_ratio < 5.0:
+                if 0.3 < group_aspect_ratio < 3.0:  # Very lenient aspect ratio
                     grouped_contours.append((nearby_contours, min_x, min_y, group_w, group_h))
                 else:
                     # If grouped bounding box doesn't meet aspect ratio, treat each contour individually
                     for contour, x, y, w, h, area in nearby_contours:
                         grouped_contours.append(([(contour, x, y, w, h, area)], x, y, w, h))
-
+        
         valid_contours = grouped_contours
-        print(f"Grouped into {len(valid_contours)} pink shapes")
-
-    # Create result image by copying the original image
-    result_img = img.copy()
-
-    # List to store shape data
-    shapes_data = []
-
+        print(f"Grouped into {len(valid_contours)} squares")
+    
+    # Collect red squares data for JSON output
+    red_squares_data = []
+    
     # Draw results
+    result_img = img.copy()
+    
+    # Draw contours and bounding boxes
     for i, (contours_group, x, y, w, h) in enumerate(valid_contours):
-        # Draw all contours in the group in green (#00ff00)
+        # Draw all contours in the group
         for contour, _, _, _, _, _ in contours_group:
-            cv2.drawContours(result_img, [contour], -1, (0, 255, 0), 2)  # Green color (BGR)
-
-        # Draw bounding box around the group in green (#00ff00)
+            cv2.drawContours(result_img, [contour], -1, (0, 255, 0), 1)
+        
+        # Draw bounding box around the group
         cv2.rectangle(result_img, (int(x), int(y)), (int(x + w), int(y + h)), (0, 255, 0), 2)
-
-        # Add label in white
+        
+        # Add label
         label = f"{i+1}"
-        cv2.putText(result_img, label, (int(x), int(y)-10),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-
-        # Store shape data
-        shape_info = {
+        cv2.putText(result_img, label, (int(x), int(y)-10), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+        
+        # Collect data for JSON
+        red_square_data = {
             "id": i + 1,
             "x": float(x),
             "y": float(y),
             "width": float(w),
             "height": float(h),
-            "contours_count": len(contours_group),
-            "center_x": float(x + w/2),
-            "center_y": float(y + h/2)
+            "center_x": float(x + w / 2),
+            "center_y": float(y + h / 2),
+            "area": float(w * h),
+            "contours_count": len(contours_group)
         }
-        shapes_data.append(shape_info)
+        red_squares_data.append(red_square_data)
+        
+        print(f"Square{i+1}: Size={w:.1f}x{h:.1f}, Contours={len(contours_group)}")
+    
+    # Save result image
+    cv2.imwrite(output_path, result_img)
+    print(f"Result saved as: {output_path}")
 
-        print(f"{i+1}: Size={w:.1f}x{h:.1f}, Contours={len(contours_group)}")
+    print(f"Total squares detected: {len(valid_contours)}")
 
-    # Save result
-    if output_path.lower().endswith('.svg'):
-        png_path = output_path.replace('.svg', '.png')
-        cv2.imwrite(png_path, result_img)
-        print(f"Result saved as: {png_path} (PNG format)")
+    # Split elongated squares before saving
+    if red_squares_data:
+        print(f"\nChecking for elongated squares to split...")
+        red_squares_data = split_elongated_squares(red_squares_data, aspect_ratio_threshold=2.0)
+
+    # Save red squares data to JSON if path provided
+    if json_output_path:
+        save_red_squares_to_json(red_squares_data, json_output_path)
+
+    # Delete the debug mask file after processing
+    debug_mask_path = output_path.replace('.png', '_mask.png')
+    if os.path.exists(debug_mask_path):
+        os.remove(debug_mask_path)
+        print(f"Debug mask deleted: {debug_mask_path}")
+
+    return len(red_squares_data), red_squares_data
+
+def process_svg_colors():
+    # Get the current working directory to determine the correct paths
+    current_dir = os.getcwd()
+    
+    # If we're in the processors directory, use relative paths
+    if current_dir.endswith('processors'):
+        input_svg = "../files/Step4.svg"
+        output_svg = "../files/Step6.svg"
+        output_results = "../files/Step6-results.png"
     else:
-        cv2.imwrite(output_path, result_img)
-        print(f"Result saved as: {output_path}")
-
-    print(f"Total pink shapes detected: {len(valid_contours)}")
-
-    return len(valid_contours), shapes_data
-
-
-def save_shapes_to_json(shapes_data, output_file='pinkFrames.json'):
-    """Save shape data to JSON file"""
-    try:
-        # Get the current working directory to determine the correct paths
-        current_dir = os.getcwd()
-
-        # If we're in the processors directory, use relative paths
-        if current_dir.endswith('processors'):
-            json_path = f"../files/tempData/{output_file}"
+        # If we're in the server directory (when called from pipeline), use direct paths
+        input_svg = "files/Step4.svg"
+        output_svg = "files/Step6.svg"
+        output_results = "files/Step6-results.png"
+    
+    # PHASE 1: Color processing from Step4.svg to Step6.svg
+    
+    print("PHASE 1: Processing colors from Step4.svg to Step6.svg")
+    
+    # Read the SVG file
+    with open(input_svg, 'r', encoding='utf-8') as file:
+        content = file.read()
+    
+    # Find all hex color codes (#xxxxxx)
+    hex_pattern = r'#([0-9a-fA-F]{6})'
+    
+    def replace_color(match):
+        color = match.group(1).lower()
+        # Change #0000ff to #fb0505, keep #fb0505 unchanged, replace all others with #202124
+        if color == '0000ff':
+            return '#fb0505'
+        elif color == 'fb0505':
+            return match.group(0)  # Return original match unchanged
         else:
-            # If we're in the server directory (when called from pipeline), use direct paths
-            json_path = f"files/tempData/{output_file}"
-
-        # Prepare the data structure
-        output_data = {
-            "total_pink_shapes": len(shapes_data),
-            "pink_shapes": shapes_data,
-            "detection_method": "OpenCV contour detection",
-            "note": "Count obtained by detecting pink (#ff00cd) contours in SVG"
-        }
-
-        # Save to JSON file
-        with open(json_path, 'w', encoding='utf-8') as f:
-            json.dump(output_data, f, indent=2, ensure_ascii=False)
-
-        print(f"Shape data saved to: {json_path}")
-        return True
-
-    except Exception as e:
-        print(f"Error saving to JSON: {e}")
-        return False
-
-
-def process_svg_colors(input_svg, output_svg):
-    """
-    Process SVG colors following Step8 strategy:
-    1. Replace all colors with #202124 except pink (#ff00cd)
-    2. Convert pink stroke elements to filled shapes with green border
-    3. Convert paths to rectangles with padding
-    """
-    try:
-        # Read the SVG file
-        with open(input_svg, 'r', encoding='utf-8') as file:
-            content = file.read()
-
-        # Replace all hex colors except pink with dark gray
-        hex_pattern = r'#([0-9a-fA-F]{6})'
-
-        def replace_color(match):
-            color = match.group(1).lower()
-            if color == 'ff00cd':
-                return match.group(0)  # Keep pink unchanged
+            return '#202124'
+    
+    # Replace colors using the function
+    processed_content = re.sub(hex_pattern, replace_color, content)
+    
+    # Write the processed content to Step6.svg
+    with open(output_svg, 'w', encoding='utf-8') as file:
+        file.write(processed_content)
+    
+    print("Phase 1 completed: Colors processed and saved to Step6.svg")
+    
+    # PHASE 2: Shores processing on Step6.svg
+    print("\nPHASE 2: Processing shores on Step6.svg")
+    
+    # Read the Step6.svg file for shores processing
+    with open(output_svg, 'r', encoding='utf-8') as file:
+        content = file.read()
+    
+    # Pattern to find elements with stroke:#fb0505 and fill:none
+    # This will match the style attribute and replace fill:none with fill:#fb0505
+    pattern = r'(style="[^"]*fill:none[^"]*stroke:#fb0505[^"]*")'
+    
+    def replace_fill(match):
+        style_attr = match.group(1)
+        # Replace fill:none with fill:#fb0505
+        new_style = style_attr.replace('fill:none', 'fill:#fb0505')
+        return new_style
+    
+    # Apply the replacement for fill
+    modified_content = re.sub(pattern, replace_fill, content)
+    
+    # Function to change shores color to #202124
+    def change_shores_color(match):
+        path_element = match.group(0)
+        
+        # Check if the path has a style attribute
+        if 'style=' in path_element:
+            # Replace any existing stroke color with #202124
+            if 'stroke:' in path_element:
+                # Replace existing stroke color
+                path_element = re.sub(r'stroke:#[0-9a-fA-F]{6}', 'stroke:#202124', path_element)
+                path_element = re.sub(r'stroke:#[0-9a-fA-F]{3}', 'stroke:#202124', path_element)
             else:
-                return '#202124'  # Replace with dark gray
-
-        processed_content = re.sub(hex_pattern, replace_color, content)
-
-        # Convert pink stroke elements to filled shapes
-        # Pattern to match style attributes with #ff00cd stroke and fill:none
-        stroke_to_fill_pattern = r'style="([^"]*fill:none[^"]*stroke:#ff00cd[^"]*)"'
-        
-        def convert_stroke_to_fill(match):
-            style_attr = match.group(1)
-            
-            # Replace fill:none with pink fill
-            new_style = style_attr.replace('fill:none', 'fill:#ff00cd')
-            
-            # Remove stroke-related attributes
-            new_style = re.sub(r'stroke:#ff00cd[^;]*;?', '', new_style)
-            new_style = re.sub(r'stroke-width:[^;]*;?', '', new_style)
-            new_style = re.sub(r'stroke-linecap:[^;]*;?', '', new_style)
-            new_style = re.sub(r'stroke-linejoin:[^;]*;?', '', new_style)
-            new_style = re.sub(r'stroke-miterlimit:[^;]*;?', '', new_style)
-            new_style = re.sub(r'stroke-dasharray:[^;]*;?', '', new_style)
-            new_style = re.sub(r'stroke-opacity:[^;]*;?', '', new_style)
-            
-            # Clean up any double semicolons or trailing semicolons
-            new_style = re.sub(r';;+', ';', new_style)
-            new_style = new_style.strip(';')
-            
-            # Add thin green border
-            new_style += ';stroke:#00ff00;stroke-width:3'
-            
-            return f'style="{new_style}"'
-        
-        # Apply the stroke-to-fill conversion
-        processed_content = re.sub(stroke_to_fill_pattern, convert_stroke_to_fill, processed_content, flags=re.IGNORECASE)
-
-        # Convert paths to rectangles
-        # Pattern to match path elements with #ff00cd fill
-        path_pattern = r'<path\s+[^>]*?style="([^"]*fill:#ff00cd[^"]*)"[^>]*?d="([^"]*)"[^>]*?/?>'
-        
-        def path_to_rect(match):
-            style = match.group(1)
-            d = match.group(2)
-            
-            # Parse the path data
-            coordinates = parse_path_data(d)
-            
-            if not coordinates:
-                return match.group(0)  # Return original if we can't parse
-            
-            # Calculate bounding box
-            bbox = calculate_bounding_box(coordinates)
-            if not bbox:
-                return match.group(0)
-            
-            min_x, min_y, max_x, max_y = bbox
-            width = max_x - min_x
-            height = max_y - min_y
-            
-            # Add some padding to make the rectangle more visible
-            padding = max(width, height) * 0.1
-            width += padding * 2
-            height += padding * 2
-            min_x -= padding
-            min_y -= padding
-            
-            # Ensure thin green border is in the style
-            if 'stroke:' not in style:
-                style += ';stroke:#00ff00;stroke-width:3'
-            else:
-                # Replace existing stroke with green border
-                style = re.sub(r'stroke:[^;]*', 'stroke:#00ff00', style)
-                if 'stroke-width:' not in style:
-                    style += ';stroke-width:3'
-                else:
-                    style = re.sub(r'stroke-width:[^;]*', 'stroke-width:3', style)
-            
-            # Create rect element
-            rect_element = f'<rect\n           style="{style}"\n           x="{min_x}"\n           y="{min_y}"\n           width="{width}"\n           height="{height}" />'
-            
-            return rect_element
-        
-        # Apply the path-to-rect conversion
-        processed_content = re.sub(path_pattern, path_to_rect, processed_content, flags=re.DOTALL)
-
-        # Write the processed content
-        with open(output_svg, 'w', encoding='utf-8') as file:
-            file.write(processed_content)
-
-        print("✓ SVG processing completed")
-        print(f"  - All colors replaced with #202124 (except #ff00cd pink)")
-        print(f"  - Pink stroke elements converted to filled shapes")
-        print(f"  - Paths converted to rectangles with green borders")
-        print(f"  - Output saved to: {output_svg}")
-
-    except FileNotFoundError:
-        print(f"✗ Error: Could not find input file {input_svg}")
-    except Exception as e:
-        print(f"✗ Error processing SVG: {e}")
-
-
-def parse_path_data(d):
-    """Parse SVG path data to extract coordinates"""
-    commands = []
-    current = ""
-    for char in d:
-        if char in 'MmLlHhVvCcSsQqTtAaZz':
-            if current:
-                commands.append(current.strip())
-            current = char
+                # Add stroke color if it doesn't exist
+                path_element = re.sub(r'(style="[^"]*)"', r'\1;stroke:#202124"', path_element)
         else:
-            current += char
-    if current:
-        commands.append(current.strip())
-    
-    coordinates = []
-    x, y = 0, 0
-    
-    for cmd in commands:
-        if not cmd:
-            continue
-        command = cmd[0]
-        params = cmd[1:].strip()
+            # Add style attribute with stroke color
+            path_element = re.sub(r'(<path[^>]*>)', r'\1 style="stroke:#202124"', path_element)
         
-        if command in 'MmLl':
-            # Move or line to
-            coords = [float(x) for x in re.findall(r'[-+]?\d*\.?\d+', params)]
-            for i in range(0, len(coords), 2):
-                if i + 1 < len(coords):
-                    if command.isupper():
-                        x, y = coords[i], coords[i + 1]
-                    else:
-                        x += coords[i]
-                        y += coords[i + 1]
-                    coordinates.append((x, y))
-        elif command in 'Hh':
-            # Horizontal line
-            coords = [float(x) for x in re.findall(r'[-+]?\d*\.?\d+', params)]
-            for coord in coords:
-                if command.isupper():
-                    x = coord
-                else:
-                    x += coord
-                coordinates.append((x, y))
-        elif command in 'Vv':
-            # Vertical line
-            coords = [float(x) for x in re.findall(r'[-+]?\d*\.?\d+', params)]
-            for coord in coords:
-                if command.isupper():
-                    y = coord
-                else:
-                    y += coord
-                coordinates.append((x, y))
+        return path_element
     
-    return coordinates
-
-
-def calculate_bounding_box(coordinates):
-    """Calculate the bounding box of coordinates"""
-    if not coordinates:
-        return None
+    # Apply the shores color change
+    modified_content = shores.sub(change_shores_color, modified_content)
     
-    min_x = min(coord[0] for coord in coordinates)
-    max_x = max(coord[0] for coord in coordinates)
-    min_y = min(coord[1] for coord in coordinates)
-    max_y = max(coord[1] for coord in coordinates)
+    # Final color transformations: #202124 to black, red to red
+    # Change all #202124 to black (for squares)
+    modified_content = modified_content.replace('#202124', '#000000')
     
-    return min_x, min_y, max_x, max_y
-
-
-def count_pink_shapes_from_svg(svg_path):
-    """Count pink shapes directly from SVG by counting stroke:#ff00cd occurrences"""
+    # Change all #fb0505 (red) to red (for background)
+    modified_content = modified_content.replace('#fb0505', '#ff0000')
+    
+    # Write the final processed content back to Step6.svg
+    with open(output_svg, 'w', encoding='utf-8') as file:
+        file.write(modified_content)
+    
+    print("SVG processing completed!")
+    print("Phase 1: Original colors replaced with #202124 (except #fb0505)")
+    print("Phase 1: #0000ff changed to #fb0505")
+    print("Phase 2: All elements with stroke:#fb0505 now have fill:#fb0505")
+    print("Phase 2: All shores matching the pattern now have stroke color #202124")
+    print("Phase 2: All #202124 colors changed to black (squares)")
+    print("Phase 2: All red (#fb0505) colors changed to red (background)")
+    print(f"Final output saved to: {output_svg}")
+    
+    # PHASE 3: Fill squares before conversion
+    print("\nPHASE 3: Filling squares in Step6.svg")
+    
+    # Read the Step6.svg file for square filling
+    with open(output_svg, 'r', encoding='utf-8') as file:
+        content = file.read()
+    
+    # More selective approach: only fill elements that have red stroke
+    # Pattern to find elements with stroke:#ff0000 and fill:none
+    fill_pattern = r'(style="[^"]*fill:none[^"]*stroke:#ff0000[^"]*")'
+    
+    def fill_red_squares(match):
+        style_attr = match.group(1)
+        # Replace fill:none with fill:#ff0000 to fill the squares
+        new_style = style_attr.replace('fill:none', 'fill:#ff0000')
+        return new_style
+    
+    # Apply the replacement to fill only red squares
+    filled_content = re.sub(fill_pattern, fill_red_squares, content)
+    
+    # Write the filled content back to Step6.svg
+    with open(output_svg, 'w', encoding='utf-8') as file:
+        file.write(filled_content)
+    
+    print("Phase 3 completed: Squares filled with red color")
+    print(f"Filled SVG saved to: {output_svg}")
+    
+    # PHASE 4: Contour-based object detection
+    print("\nPHASE 4: Contour-based object detection on Step6.svg")
+    
+    # Define JSON output path
+    json_output = "files/tempData/square-shores.json"
+    if current_dir.endswith('processors'):
+        json_output = "../files/tempData/square-shores.json"
+    
     try:
-        with open(svg_path, 'r', encoding='utf-8') as file:
-            content = file.read()
-
-        # Count occurrences of pink stroke (original diagonal lines)
-        count = len(re.findall(r'stroke:#ff00cd', content, re.IGNORECASE))
-        return count
+        # Detect red squares in the processed SVG
+        count, red_squares_data = detect_red_squares(output_svg, output_results, json_output)
+        print(f"Phase 4 completed: Detected {count} red squares")
+        print(f"Results saved to: {output_results}")
+        print(f"JSON data saved to: {json_output}")
     except Exception as e:
-        print(f"Error counting pink shapes: {e}")
-        return 0
-
-
-def count_pink_rectangles_from_svg(svg_path):
-    """Count pink rectangles from SVG by counting rect elements with fill:#ff00cd"""
-    try:
-        with open(svg_path, 'r', encoding='utf-8') as file:
-            content = file.read()
-
-        # Count occurrences of rectangles with pink fill
-        count = len(re.findall(r'<rect[^>]*fill:#ff00cd[^>]*>', content, re.IGNORECASE))
-        return count
-    except Exception as e:
-        print(f"Error counting pink rectangles: {e}")
-        return 0
-
-
-def filter_shapes_by_size(shapes_data, tolerance=10):
-    """
-    Filter shapes to only include those within acceptable size ranges.
-    Uses fixed reference ranges (46.5-72.0 width, 56.0-59.0 height) with tolerance.
-
-    Args:
-        shapes_data: List of shape dictionaries with 'width' and 'height'
-        tolerance: Number of pixels tolerance from reference ranges (default: 10)
-
-    Returns:
-        Filtered list of shapes
-    """
-    if not shapes_data:
-        return []
-
-    # Fixed reference ranges from typical pink frame sizes
-    ref_min_width = 46.5
-    ref_max_width = 72.0
-    ref_min_height = 56.0
-    ref_max_height = 59.0
-
-    # Apply tolerance to reference ranges
-    min_width = ref_min_width - tolerance
-    max_width = ref_max_width + tolerance
-    min_height = ref_min_height - tolerance
-    max_height = ref_max_height + tolerance
-
-    print(f"\n  Size filtering (tolerance: ±{tolerance}px from reference):")
-    print(f"  Reference width range: {ref_min_width:.1f} - {ref_max_width:.1f}")
-    print(f"  Reference height range: {ref_min_height:.1f} - {ref_max_height:.1f}")
-    print(f"  Acceptable width range: {min_width:.1f} - {max_width:.1f}")
-    print(f"  Acceptable height range: {min_height:.1f} - {max_height:.1f}")
-
-    # Filter shapes
-    filtered_shapes = []
-    rejected_count = 0
-
-    for shape in shapes_data:
-        width = shape['width']
-        height = shape['height']
-
-        # Check if within acceptable ranges
-        if (min_width <= width <= max_width and
-            min_height <= height <= max_height):
-            filtered_shapes.append(shape)
-        else:
-            rejected_count += 1
-            print(f"  Rejected shape {shape['id']}: {width:.1f}x{height:.1f} (outside range)")
-
-    print(f"  Kept {len(filtered_shapes)} shapes, rejected {rejected_count} shapes")
-
-    # Re-number the filtered shapes
-    for i, shape in enumerate(filtered_shapes):
-        shape['id'] = i + 1
-
-    return filtered_shapes
-
-
-def split_elongated_rectangles(shapes_data, aspect_ratio_threshold=2.0):
-    """Split rectangles that are too elongated into 2 separate shapes"""
-    new_shapes = []
-    split_count = 0
-    
-    for shape in shapes_data:
-        width = shape['width']
-        height = shape['height']
-        aspect_ratio = max(width, height) / min(width, height) if min(width, height) > 0 else 1
-        
-        # If aspect ratio is too high, split the rectangle
-        if aspect_ratio >= aspect_ratio_threshold:
-            split_count += 1
-            x = shape['x']
-            y = shape['y']
-            
-            # Determine if it's horizontal or vertical
-            if width > height:
-                # Split horizontally into 2 rectangles
-                new_width = width / 2
-                
-                # First half
-                shape1 = {
-                    'x': x,
-                    'y': y,
-                    'width': new_width,
-                    'height': height,
-                    'center_x': x + new_width / 2,
-                    'center_y': y + height / 2,
-                    'split_from': shape['id']
-                }
-                
-                # Second half
-                shape2 = {
-                    'x': x + new_width,
-                    'y': y,
-                    'width': new_width,
-                    'height': height,
-                    'center_x': x + new_width + new_width / 2,
-                    'center_y': y + height / 2,
-                    'split_from': shape['id']
-                }
-                
-                new_shapes.extend([shape1, shape2])
-                print(f"  Split shape {shape['id']} (horizontal {width:.1f}x{height:.1f}) into 2 shapes")
-            else:
-                # Split vertically into 2 rectangles
-                new_height = height / 2
-                
-                # First half (top)
-                shape1 = {
-                    'x': x,
-                    'y': y,
-                    'width': width,
-                    'height': new_height,
-                    'center_x': x + width / 2,
-                    'center_y': y + new_height / 2,
-                    'split_from': shape['id']
-                }
-                
-                # Second half (bottom)
-                shape2 = {
-                    'x': x,
-                    'y': y + new_height,
-                    'width': width,
-                    'height': new_height,
-                    'center_x': x + width / 2,
-                    'center_y': y + new_height + new_height / 2,
-                    'split_from': shape['id']
-                }
-                
-                new_shapes.extend([shape1, shape2])
-                print(f"  Split shape {shape['id']} (vertical {width:.1f}x{height:.1f}) into 2 shapes")
-        else:
-            # Keep the original shape
-            new_shapes.append(shape)
-    
-    # Re-number all shapes
-    for i, shape in enumerate(new_shapes):
-        shape['id'] = i + 1
-    
-    if split_count > 0:
-        print(f"\n✓ Split {split_count} elongated rectangles")
-        print(f"  Total shapes after splitting: {len(new_shapes)}")
-    
-    return new_shapes
-
-
-def add_numbered_labels_to_svg(svg_path, shapes_data):
-    """Add numbered labels on top of each pink rectangle"""
-    try:
-        with open(svg_path, 'r', encoding='utf-8') as file:
-            content = file.read()
-
-        # Create markers for each shape
-        markers = []
-        for shape in shapes_data:
-            shape_id = shape['id']
-            center_x = shape['center_x']
-            center_y = shape['center_y']
-
-            # Add small green text label
-            font_size = 16
-
-            text = f'  <text x="{center_x}" y="{center_y + 6}" style="fill:#00ff00;font-size:{font_size}px;font-weight:bold;text-anchor:middle;font-family:Arial">{shape_id}</text>\n'
-
-            markers.append(text)
-
-        # Find the closing </svg> tag and insert markers before it
-        svg_end = content.rfind('</svg>')
-        if svg_end == -1:
-            print("Warning: Could not find </svg> tag")
-            return False
-
-        # Insert all markers before </svg>
-        markers_svg = '  <!-- Pink rectangle numbered labels -->\n' + ''.join(markers)
-        new_content = content[:svg_end] + markers_svg + content[svg_end:]
-
-        # Write the modified content
-        with open(svg_path, 'w', encoding='utf-8') as file:
-            file.write(new_content)
-
-        print(f"✓ Added {len(markers)} numbered labels to SVG")
-        return True
-
-    except Exception as e:
-        print(f"Error adding numbered labels: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
-
+        print(f"Phase 4 error: {e}", "error")
+        print("Note: Make sure cairosvg is installed: pip install cairosvg", "warning")
 
 def run_step7():
     """
-    Run Step7 processing - keep only pink shapes and count them
+    Run Step6 processing - detect red squares
     """
     try:
-        # Determine paths based on current directory
+        # Get the current working directory to determine the correct paths
         current_dir = os.getcwd()
-
+        
+        # If we're in the processors directory, use relative paths
         if current_dir.endswith('processors'):
             input_svg = "../files/Step4.svg"
-            output_svg = "../files/Step7.svg"
-            output_results = "../files/Step7-results.png"
+            output_svg = "../files/Step6.svg"
+            output_results = "../files/Step6-results.png"
         else:
+            # If we're in the server directory (when called from pipeline), use direct paths
             input_svg = "files/Step4.svg"
-            output_svg = "files/Step7.svg"
-            output_results = "files/Step7-results.png"
-
-        # Process SVG colors and convert paths to rectangles
-        process_svg_colors(input_svg, output_svg)
-
-        # Detect pink rectangles using OpenCV
-        print(f"\nDetecting pink rectangles in: {output_svg}")
-        count, shapes_data = detect_pink_shapes(output_svg, output_results)
-        print(f"\nInitial count: {count} pink shapes")
-
-        # Split elongated rectangles into 2 separate shapes
-        if shapes_data:
-            print(f"\nChecking for elongated rectangles to split...")
-            shapes_data = split_elongated_rectangles(shapes_data, aspect_ratio_threshold=1.6)
-            count = len(shapes_data)
-            print(f"\nCount after splitting: {count} pink shapes")
-
-        # Filter shapes by size (±15 pixels from average)
-        if shapes_data:
-            print(f"\nApplying size filtering...")
-            shapes_data = filter_shapes_by_size(shapes_data, tolerance=15)
-            count = len(shapes_data)
-            print(f"\nFinal count after filtering: {count} pink shapes")
-
-        # Save shape data to JSON (always save, even if empty)
-        save_shapes_to_json(shapes_data if shapes_data else [], 'pinkFrames.json')
-
-        # Add numbered labels to the SVG
-        if shapes_data:
-            print(f"\nAdding numbered labels to SVG...")
-            add_numbered_labels_to_svg(output_svg, shapes_data)
-
-        print(f"\n✓ Step7 completed successfully")
-        print(f"  - Pink shapes preserved in: {output_svg}")
-
+            output_svg = "files/Step6.svg"
+            output_results = "files/Step6-results.png"
+        
+        # Run full SVG processing pipeline
+        process_svg_colors()
+        
         return True
-
+        
     except Exception as e:
-        print(f"✗ Error in Step7 processing: {e}")
-        import traceback
-        traceback.print_exc()
+        
+        print(f"Error in processing: {e}", "error")
         return False
 
+def main():
+    parser = argparse.ArgumentParser(description='Contour-based Red Square Detection (#fb0505)')
+    parser.add_argument('--source', type=str, default='Step6.svg',
+                       help='Path to SVG image (default: Step6.svg)')
+    parser.add_argument('--output', type=str, default='Step6-results.png',
+                       help='Output image path (default: Step6-results.png)')
+    parser.add_argument('--process-only', action='store_true',
+                       help='Only run contour detection, skip SVG processing')
+    
+    args = parser.parse_args()
+    
+    if args.process_only:
+        # Only run contour detection
+        source_path = Path(args.source)
+        if not source_path.exists():
+            
+            print(f"Error: Source not found at {source_path}", "error")
+            return
+        
+        count, red_squares_data = detect_red_squares(source_path, args.output)
+        print(f"\nFinal count: {count} red squares (#fb0505)")
+    else:
+        # Run full SVG processing pipeline
+        process_svg_colors()
 
 if __name__ == "__main__":
-    try:
-        # Determine paths
-        current_dir = os.getcwd()
-
-        if current_dir.endswith('processors'):
-            input_svg = "../files/Step4.svg"
-            output_svg = "../files/Step7.svg"
-            output_results = "../files/Step7-results.png"
-        else:
-            input_svg = "files/Step4.svg"
-            output_svg = "files/Step7.svg"
-            output_results = "files/Step7-results.png"
-
-        # Process SVG colors and convert paths to rectangles
-        process_svg_colors(input_svg, output_svg)
-
-        # Detect pink rectangles using OpenCV
-        print(f"\nDetecting pink rectangles in: {output_svg}")
-        count, shapes_data = detect_pink_shapes(output_svg, output_results)
-        print(f"\nInitial count: {count} pink shapes")
-
-        # Split elongated rectangles into 2 separate shapes
-        if shapes_data:
-            print(f"\nChecking for elongated rectangles to split...")
-            shapes_data = split_elongated_rectangles(shapes_data, aspect_ratio_threshold=1.6)
-            count = len(shapes_data)
-            print(f"\nCount after splitting: {count} pink shapes")
-
-        # Filter shapes by size (±15 pixels from average)
-        if shapes_data:
-            print(f"\nApplying size filtering...")
-            shapes_data = filter_shapes_by_size(shapes_data, tolerance=15)
-            count = len(shapes_data)
-            print(f"\nFinal count after filtering: {count} pink shapes")
-
-        # Save shape data to JSON (always save, even if empty)
-        save_shapes_to_json(shapes_data if shapes_data else [], 'pinkFrames.json')
-
-        # Add numbered labels to the SVG
-        if shapes_data:
-            print(f"\nAdding numbered labels to SVG...")
-            add_numbered_labels_to_svg(output_svg, shapes_data)
-
-        print(f"\n✓ Done! Pink shapes are now isolated in {output_svg}")
-
-    except Exception as e:
-        print(f"✗ Error: {e}")
-        import traceback
-        traceback.print_exc()
+    main()

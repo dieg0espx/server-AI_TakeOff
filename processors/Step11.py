@@ -1,252 +1,514 @@
 #!/usr/bin/env python3
 """
-Step 11: Extract Text from Original PDF and Rewrite Professionally
-Extracts text from the original.pdf using OCR and uses Google Gemini to rewrite it professionally
+Step 10: Draw containers from greenFrames.json, pinkFrames.json, x-shores.json, and square-shores.json onto Step2.svg
+Adds red border rectangles (green frames), pink border rectangles (pink frames), blue border rectangles (X shapes), and red border rectangles (red squares) with numeration to the SVG
 """
 
+import json
 import os
 import sys
-import json
+import re
 from pathlib import Path
-from dotenv import load_dotenv
-
-# Load environment variables
-load_dotenv()
+import cairosvg
 
 # Add parent directory to path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from api.pdf_text_extractor import extract_text_from_pdf
-
-def rewrite_text_with_gemini(extracted_text: str) -> str:
-    """
-    Use Google Gemini API to rewrite the extracted text professionally for scaffolding drawings
-
-    Args:
-        extracted_text: Raw OCR text from the PDF
-
-    Returns:
-        Professionally rewritten text or original text if API call fails
-    """
+def load_green_frames(json_path):
+    """Load green frames data from JSON file"""
     try:
-        from google import genai
-        from google.genai import types
-
-        # Get API key from environment
-        api_key = os.getenv('GEMINI_API_KEY')
-        if not api_key:
-            print("⚠️  GEMINI_API_KEY not found in environment variables")
-            print("   Skipping Gemini rewriting, using extracted text as-is")
-            return extracted_text
-
-        print("\n🤖 Rewriting text with Google Gemini API...")
-
-        # Initialize Gemini client
-        client = genai.Client(api_key=api_key)
-
-        # Create the prompt for professional rewriting
-        prompt = f"""You are an expert construction documentation specialist with deep knowledge of scaffolding, shoring, structural engineering, and construction drawings.
-
-The text below was extracted from a construction drawing (likely scaffolding/shoring plans) using OCR. It contains technical specifications, measurements, elevations, materials, safety notes, and engineering requirements.
-
-YOUR TASK: Transform this into a COMPREHENSIVE, DETAILED, PROFESSIONAL construction document that:
-
-1. **EXPAND AND EXPLAIN** - Don't just fix errors, ELABORATE on every detail:
-   - Explain what each measurement means and its purpose
-   - Describe the structural elements and their function
-   - Clarify technical specifications and their significance
-   - Expand on safety requirements and compliance standards
-   - Add context to engineering notes and calculations
-
-2. **ORGANIZE INTO DETAILED SECTIONS** with clear headers:
-   - Project Information (complete details)
-   - Structural Specifications (detailed descriptions)
-   - Material Requirements (comprehensive list with specifications)
-   - Dimensions and Elevations (organized by area/section)
-   - Load Specifications (detailed load calculations)
-   - Installation Requirements (step-by-step guidance)
-   - Safety and Compliance Notes (expanded explanations)
-   - Engineering Requirements (detailed professional requirements)
-   - Quality Standards (material grades and specifications)
-
-3. **BE VERY DETAILED** - Include:
-   - Full explanations of measurements (e.g., "EL. 230.17 elevation" → "Elevation 230.17 feet above datum, indicating the top height of the shoring structure at this location")
-   - Complete material specifications (e.g., "4X6" → "4-inch by 6-inch dimensional lumber joists, heavy-duty structural grade")
-   - Detailed spacing information (e.g., "@ 19.2" O/C" → "Spaced at 19.2 inches on center, providing uniform load distribution")
-   - Comprehensive load ratings (e.g., "10 K/LEG" → "10 kip (10,000 pounds) load capacity per leg")
-
-4. **PROFESSIONAL CONSTRUCTION LANGUAGE**:
-   - Use proper construction and engineering terminology
-   - Explain abbreviations in parentheses
-   - Format measurements consistently
-   - Use industry-standard notation
-
-5. **MAXIMUM DETAIL** - Write as much useful information as possible. The longer and more detailed, the better. Include:
-   - Every dimension with its purpose
-   - Every material with its grade and specification
-   - Every safety note with expanded explanation
-   - Every structural element with its function
-   - Every load rating with context
-
-6. **FIX OCR ERRORS** while maintaining all technical content
-
-IMPORTANT:
-- Write AT LEAST 5-10x more detailed than the original
-- Expand abbreviations and explain technical terms
-- Add context and explanations throughout
-- Be thorough and comprehensive - MORE DETAIL IS BETTER
-- DO NOT summarize or condense - EXPAND and ELABORATE
-
-RAW OCR TEXT FROM CONSTRUCTION DRAWING:
-{extracted_text}
-
-COMPREHENSIVE DETAILED PROFESSIONAL CONSTRUCTION DOCUMENT:"""
-
-        # Call Gemini API (using gemini-2.5-flash for fast and high-quality processing)
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=0.5,  # Slightly higher for more detailed creative expansion
-                max_output_tokens=8000,  # Increased significantly for detailed output
-            )
-        )
-
-        # Extract the rewritten text
-        rewritten_text = response.text.strip()
-
-        # Validate that Gemini actually rewrote the text (not just returned the same)
-        if rewritten_text == extracted_text or len(rewritten_text) < 50:
-            print("⚠️  Gemini returned text that appears unchanged or too short")
-            print("   Using extracted text as fallback")
-            return extracted_text
-
-        print("✅ Text successfully rewritten by Google Gemini")
-        print(f"   Original length: {len(extracted_text)} chars")
-        print(f"   Rewritten length: {len(rewritten_text)} chars")
-        return rewritten_text
-
-    except ImportError:
-        print("⚠️  Google Genai package not installed. Run: pip install google-genai")
-        print("   Using extracted text as-is")
-        return extracted_text
+        with open(json_path, 'r') as f:
+            data = json.load(f)
+        return data
     except Exception as e:
-        print(f"⚠️  Error calling Google Gemini API: {e}")
-        print("   Using extracted text as fallback")
-        import traceback
-        traceback.print_exc()
-        return extracted_text
+        return None
 
-def store_text_in_data_json(extracted_text: str, rewritten_text: str, pdf_path: str):
-    """
-    Store both the extracted text and rewritten text in data.json file
-
-    Args:
-        extracted_text: Raw OCR text from the PDF
-        rewritten_text: Professionally rewritten text from Google Gemini
-        pdf_path: Path to the original PDF file
-    """
+def load_pink_frames(json_path):
+    """Load pink frames data from JSON file"""
     try:
-        # Read existing data.json if it exists
-        if os.path.exists('data.json'):
-            with open('data.json', 'r') as file:
-                try:
-                    data = json.load(file)
-                except json.JSONDecodeError:
-                    data = {}
-        else:
-            data = {}
-        
-        # Update the data with both texts
-        data['extracted_text'] = extracted_text
-        data['rewritten_text'] = rewritten_text
-        
-        # Write updated data back to data.json
-        with open('data.json', 'w') as file:
-            json.dump(data, file, indent=4)
-        
-        print(f"✅ Extracted and rewritten text successfully stored in data.json")
-        print(f"   - Original text length: {len(extracted_text)} characters")
-        print(f"   - Rewritten text length: {len(rewritten_text)} characters")
-        print(f"   - PDF file: {pdf_path}")
-        
+        with open(json_path, 'r') as f:
+            data = json.load(f)
+        return data
     except Exception as e:
-        print(f"❌ Error storing text in data.json: {str(e)}")
+        return None
 
-def run_step11():
-    """
-    Run Step11 processing - extract text from PDF and rewrite professionally
-    """
+def load_x_shapes(json_path):
+    """Load X shapes data from JSON file"""
     try:
-        print("🚀 Step 11: Extracting and Rewriting Text from PDF")
-        print("=" * 70)
-        
-        # Get the current working directory to determine the correct paths
-        current_dir = os.getcwd()
-        
-        # If we're in the processors directory, use relative paths
-        if current_dir.endswith('processors'):
-            pdf_path = "../files/original.pdf"
-        else:
-            # If we're in the server directory (when called from pipeline), use direct paths
-            pdf_path = "files/original.pdf"
-        
-        # Check if PDF exists
-        if not os.path.exists(pdf_path):
-            print(f"❌ Error: {pdf_path} not found")
-            print("   Please ensure the PDF has been downloaded")
-            return False
-        
-        print(f"📄 Processing PDF: {pdf_path}")
-        
-        # Extract text from the PDF
-        extracted_text = extract_text_from_pdf(pdf_path)
-        
-        if extracted_text:
-            print("\n" + "=" * 70)
-            print("📝 ORIGINAL EXTRACTED TEXT (OCR)")
-            print("=" * 70)
-            print(extracted_text)
-            print("=" * 70)
-
-            # Rewrite text with Google Gemini
-            rewritten_text = rewrite_text_with_gemini(extracted_text)
-
-            print("\n" + "=" * 70)
-            print("✨ PROFESSIONALLY REWRITTEN TEXT (Google Gemini)")
-            print("=" * 70)
-            print(rewritten_text)
-            print("=" * 70)
-            
-            # Store both texts in data.json
-            print("\n💾 Storing extracted and rewritten text in data.json...")
-            store_text_in_data_json(extracted_text, rewritten_text, pdf_path)
-            
-            print(f"\n✅ Step11 completed successfully")
-            print(f"   - Original text: {len(extracted_text)} characters")
-            print(f"   - Rewritten text: {len(rewritten_text)} characters")
-            return True
-        else:
-            print("\n⚠️  No text was extracted from the PDF")
-            print("   This might be a scanned document with poor quality or no text content")
-            # Still return True as this is not a critical failure
-            return True
-        
+        with open(json_path, 'r') as f:
+            data = json.load(f)
+        return data
     except Exception as e:
-        print(f"❌ Error in Step 11: {e}")
+        return None
+
+def load_red_squares(json_path):
+    """Load red squares data from JSON file"""
+    try:
+        with open(json_path, 'r') as f:
+            data = json.load(f)
+        return data
+    except Exception as e:
+        return None
+
+def load_orange_frames(json_path):
+    """Load orange frames data from JSON file"""
+    try:
+        with open(json_path, 'r') as f:
+            data = json.load(f)
+        return data
+    except Exception as e:
+        return None
+
+def load_yellow_frames(json_path):
+    """Load yellow frames data from JSON file"""
+    try:
+        with open(json_path, 'r') as f:
+            data = json.load(f)
+        return data
+    except Exception as e:
+        return None
+
+def read_svg_file(svg_path):
+    """Read SVG file content"""
+    try:
+        with open(svg_path, 'r', encoding='utf-8') as f:
+            return f.read()
+    except Exception as e:
+        return None
+
+def rectangles_overlap(rect1, rect2):
+    """Check if two rectangles overlap or share coordinates"""
+    # Get coordinates for rectangle 1
+    x1, y1 = rect1['x'], rect1['y']
+    w1, h1 = rect1['width'], rect1['height']
+    
+    # Get coordinates for rectangle 2
+    x2, y2 = rect2['x'], rect2['y']
+    w2, h2 = rect2['width'], rect2['height']
+    
+    # Check for overlap
+    # Two rectangles overlap if:
+    # - One is not completely to the left of the other
+    # - One is not completely to the right of the other
+    # - One is not completely above the other
+    # - One is not completely below the other
+    return not (x1 + w1 <= x2 or x2 + w2 <= x1 or y1 + h1 <= y2 or y2 + h2 <= y1)
+
+def filter_overlapping_x_shapes(x_shapes, red_squares):
+    """Filter out X-shapes that overlap with red squares"""
+    filtered_x_shapes = []
+    
+    for x_shape in x_shapes:
+        overlaps_with_red_square = False
+        
+        for red_square in red_squares:
+            if rectangles_overlap(x_shape, red_square):
+                overlaps_with_red_square = True
+                break
+        
+        if not overlaps_with_red_square:
+            filtered_x_shapes.append(x_shape)
+    
+    return filtered_x_shapes
+
+def create_rectangle_element(rect_data, color='red', prefix='container'):
+    """Create SVG rectangle element with colored border and numeration"""
+    x = rect_data['x']
+    y = rect_data['y']
+    width = rect_data['width']
+    height = rect_data['height']
+    rect_id = rect_data['id']
+    
+    # Create rectangle with colored border (1px width)
+    rect_element = f'''
+    <rect
+       id="{prefix}_{rect_id}"
+       x="{x}"
+       y="{y}"
+       width="{width}"
+       height="{height}"
+       style="fill:none;stroke:{color};stroke-width:1;stroke-opacity:1" />
+    '''
+    
+    # Position text based on prefix (X shapes on right side, red squares on left side, others centered)
+    if prefix == 'x_shape':
+        # For X shapes, position text on the right side of the rectangle
+        text_x = x + width + 5  # 5px offset to the right
+        text_y = y + height / 2  # Vertically centered
+        text_anchor = "start"
+    elif prefix == 'red_square':
+        # For red squares, position text on the left side of the rectangle
+        text_x = x - 5  # 5px offset to the left
+        text_y = y + height / 2  # Vertically centered
+        text_anchor = "end"
+    else:
+        # For other shapes, center the text
+        text_x = x + width / 2
+        text_y = y + height / 2
+        text_anchor = "middle"
+    
+    text_element = f'''
+    <text
+       id="text_{prefix}_{rect_id}"
+       x="{text_x}"
+       y="{text_y}"
+       style="font-family:Arial;font-size:12px;fill:{color};text-anchor:{text_anchor};dominant-baseline:central;font-weight:bold">{rect_id}</text>
+    '''
+    
+    return rect_element + text_element
+
+def print_drawn_objects(green_rectangles, pink_rectangles, x_shapes, red_squares, orange_rectangles, yellow_rectangles):
+    """Print summary information about all drawn objects in table format"""
+    total_objects = len(green_rectangles) + len(pink_rectangles) + len(x_shapes) + len(red_squares) + len(orange_rectangles) + len(yellow_rectangles)
+
+    print("\n" + "="*40)
+    print("DRAWN OBJECTS SUMMARY")
+    print("="*40)
+    print(f"{'Object Type':<20} {'Count':<10}")
+    print("-" * 40)
+    print(f"{'Green Frames':<20} {len(green_rectangles):<10}")
+    print(f"{'Pink Frames':<20} {len(pink_rectangles):<10}")
+    print(f"{'X Shapes':<20} {len(x_shapes):<10}")
+    print(f"{'Red Squares':<20} {len(red_squares):<10}")
+    print(f"{'Orange Frames':<20} {len(orange_rectangles):<10}")
+    print(f"{'Yellow Frames':<20} {len(yellow_rectangles):<10}")
+    print("-" * 40)
+    print(f"{'TOTAL':<20} {total_objects:<10}")
+    print("="*40)
+
+def add_containers_to_svg(svg_content, green_rectangles, pink_rectangles, x_shapes, red_squares, orange_rectangles, yellow_rectangles):
+    """Add container rectangles to SVG content"""
+    # Find the opening <svg> tag to get viewBox dimensions
+    svg_start_pos = svg_content.find('<svg')
+    if svg_start_pos == -1:
+        print("Error: Could not find opening <svg> tag")
+        return None
+    
+    # Extract viewBox from SVG tag
+    svg_tag_end = svg_content.find('>', svg_start_pos)
+    svg_tag = svg_content[svg_start_pos:svg_tag_end + 1]
+    
+    # Try to extract viewBox dimensions
+    import re
+    viewbox_match = re.search(r'viewBox="([^"]*)"', svg_tag)
+    if viewbox_match:
+        viewbox = viewbox_match.group(1).split()
+        if len(viewbox) >= 4:
+            width = float(viewbox[2])
+            height = float(viewbox[3])
+        else:
+            # Fallback dimensions if viewBox is not found
+            width = 3000
+            height = 2000
+    else:
+        # Fallback dimensions if viewBox is not found
+        width = 3000
+        height = 2000
+    
+    # Create dark gray background rectangle
+    background_element = f'''
+    <rect
+       id="background"
+       x="0"
+       y="0"
+       width="{width}"
+       height="{height}"
+       style="fill:#1c1c1c;stroke:none" />
+    '''
+    
+    # Insert background right after the opening <svg> tag
+    svg_tag_end_pos = svg_content.find('>', svg_start_pos) + 1
+    svg_with_background = svg_content[:svg_tag_end_pos] + '\n' + background_element + svg_content[svg_tag_end_pos:]
+    
+    # Find the closing </svg> tag
+    svg_end_pos = svg_with_background.rfind('</svg>')
+    if svg_end_pos == -1:
+        print("Error: Could not find closing </svg> tag")
+        return None
+    
+    # Create container elements for green frames (green borders)
+    container_elements = []
+    for rect in green_rectangles:
+        container_elements.append(create_rectangle_element(rect, color='#70ff00', prefix='green_container'))
+    
+    # Create container elements for pink frames (pink borders)
+    for rect in pink_rectangles:
+        container_elements.append(create_rectangle_element(rect, color='#ff69b4', prefix='pink_container'))
+    
+    # Create container elements for X shapes (blue borders)
+    for rect in x_shapes:
+        container_elements.append(create_rectangle_element(rect, color='#0000ff', prefix='x_shape'))
+    
+    # Create container elements for red squares (red borders)
+    for rect in red_squares:
+        container_elements.append(create_rectangle_element(rect, color='#ff0000', prefix='red_square'))
+    
+    # Create container elements for orange frames (orange borders)
+    for rect in orange_rectangles:
+        container_elements.append(create_rectangle_element(rect, color='#fb7905', prefix='orange_container'))
+
+    # Create container elements for yellow frames (yellow borders)
+    for rect in yellow_rectangles:
+        container_elements.append(create_rectangle_element(rect, color='#ffff00', prefix='yellow_container'))
+
+    # Insert container elements before closing </svg> tag
+    containers_svg = '\n'.join(container_elements)
+    modified_svg = svg_with_background[:svg_end_pos] + '\n' + containers_svg + '\n' + svg_with_background[svg_end_pos:]
+    
+    return modified_svg
+
+def save_svg_file(svg_content, output_path):
+    """Save SVG content to file"""
+    try:
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(svg_content)
+        return True
+    except Exception as e:
+        return False
+
+def convert_svg_to_png(svg_path, png_path):
+    """Convert SVG to PNG"""
+    try:
+        print(f"🔄 Attempting to convert {svg_path} to {png_path}")
+        cairosvg.svg2png(url=str(svg_path), write_to=str(png_path))
+        print(f"✅ Successfully converted SVG to PNG: {png_path}")
+        return True
+    except Exception as e:
+        print(f"❌ Error converting SVG to PNG: {e}")
+        print(f"❌ Error type: {type(e).__name__}")
         import traceback
         traceback.print_exc()
         return False
 
+def mark_alum_beams_by_dimension(svg_content, target_dimension, stroke_color, tolerance=0):
+    """
+    Turn the stroke color of any <path> whose width or height matches target_dimension.
+    Returns (updated_svg_content, changed_count).
+    """
+    path_pattern = re.compile(r'<path\b[^>]*>')
+    id_pattern = re.compile(r'\bid="([^"]+)"')
+    style_pattern = re.compile(r'\bstyle="([^"]*)"')
+    d_pattern = re.compile(r'\bd="([^"]*)"')
+
+    def has_target_dimension(path_d):
+        def matches(value):
+            return abs(value - target_dimension) <= tolerance
+
+        # Absolute commands
+        m_h_abs = re.search(r'\bM\s*(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\s*H\s*(-?\d+(?:\.\d+)?)\b', path_d)
+        if m_h_abs and matches(abs(float(m_h_abs.group(3)) - float(m_h_abs.group(1)))):
+            return True
+
+        m_v_abs = re.search(r'\bM\s*(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\s*V\s*(-?\d+(?:\.\d+)?)\b', path_d)
+        if m_v_abs and matches(abs(float(m_v_abs.group(3)) - float(m_v_abs.group(2)))):
+            return True
+
+        # Relative commands
+        m_h_rel = re.search(r'\bm\s*-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?\s*h\s*(-?\d+(?:\.\d+)?)\b', path_d)
+        if m_h_rel and matches(abs(float(m_h_rel.group(1)))):
+            return True
+
+        m_v_rel = re.search(r'\bm\s*-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?\s*v\s*(-?\d+(?:\.\d+)?)\b', path_d)
+        if m_v_rel and matches(abs(float(m_v_rel.group(1)))):
+            return True
+
+        return False
+
+    changed_count = 0
+
+    def replace_path(match):
+        nonlocal changed_count
+        tag = match.group(0)
+        d_match = d_pattern.search(tag)
+        style_match = style_pattern.search(tag)
+
+        if not d_match or not style_match:
+            return tag
+
+        path_d = d_match.group(1)
+        if not has_target_dimension(path_d):
+            return tag
+
+        style_value = style_match.group(1)
+        if f'stroke:{stroke_color}'.lower() in style_value.lower():
+            return tag
+
+        if re.search(r'stroke\s*:\s*#[0-9a-fA-F]{3,6}', style_value):
+            updated_style = re.sub(r'stroke\s*:\s*#[0-9a-fA-F]{3,6}', f'stroke:{stroke_color}', style_value)
+        elif 'stroke:' in style_value:
+            updated_style = re.sub(r'stroke\s*:\s*[^;"]+', f'stroke:{stroke_color}', style_value)
+        else:
+            updated_style = style_value + f';stroke:{stroke_color}'
+
+        changed_count += 1
+        return tag.replace(style_match.group(0), f'style="{updated_style}"', 1)
+
+    updated_svg = path_pattern.sub(replace_path, svg_content)
+    return updated_svg, changed_count
+
+def update_data_json_with_counts(green_count, pink_count, x_count, red_count, orange_count, yellow_count, beam_counts):
+    """Update data.json with current step results"""
+    try:
+        base_dir = Path(__file__).parent.parent
+        data_file = base_dir / "data.json"
+
+        # Load existing data.json
+        if data_file.exists():
+            with open(data_file, 'r') as f:
+                data = json.load(f)
+        else:
+            data = {}
+
+        # Update step_results
+        data["step_results"] = {
+            "step5_blue_X_shapes": x_count,
+            "step6_red_squares": red_count,
+            "step7_pink_shapes": pink_count,
+            "step8_green_rectangles": green_count,
+            "step9_orange_rectangles": orange_count,
+            "step11_yellow_shapes": yellow_count
+        }
+        data["step_results"].update(beam_counts)
+
+        # Write back to data.json
+        with open(data_file, 'w') as f:
+            json.dump(data, f, indent=4)
+
+        return True
+    except Exception as e:
+        print(f"⚠️  Error updating data.json: {e}")
+        return False
+
+def save_beam_counts_json(beam_counts):
+    """Save each beam count into tempData for main pipeline aggregation."""
+    try:
+        base_dir = Path(__file__).parent.parent
+        temp_data_dir = base_dir / "files" / "tempData"
+        for key, count in beam_counts.items():
+            output_file = temp_data_dir / f"{key}.json"
+            with open(output_file, 'w') as f:
+                json.dump({key: count}, f, indent=4)
+        return True
+    except Exception as e:
+        print(f"⚠️  Error saving beam count JSON files: {e}")
+        return False
+
+def run_step11():
+    """Main function to process Step 10"""
+    # Define file paths
+    base_dir = Path(__file__).parent.parent
+    green_frames_path = base_dir / "files" / "tempData" / "greenFrames.json"
+    pink_frames_path = base_dir / "files" / "tempData" / "pinkFrames.json"
+    x_shapes_path = base_dir / "files" / "tempData" / "x-shores.json"
+    red_squares_path = base_dir / "files" / "tempData" / "square-shores.json"
+    orange_frames_path = base_dir / "files" / "tempData" / "orangeFrames.json"
+    yellow_frames_path = base_dir / "files" / "tempData" / "yellowFrames.json"
+    step2_svg_path = base_dir / "files" / "Step2.svg"
+    output_path = base_dir / "files" / "Step11.svg"
+
+    # Load data silently
+    green_frames_data = load_green_frames(green_frames_path)
+    if not green_frames_data:
+        return False
+
+    green_rectangles = green_frames_data.get('rectangles', [])
+
+    pink_frames_data = load_pink_frames(pink_frames_path)
+    if not pink_frames_data:
+        return False
+
+    pink_rectangles = pink_frames_data.get('pink_shapes', [])
+
+    x_shapes_data = load_x_shapes(x_shapes_path)
+    if not x_shapes_data:
+        return False
+
+    x_shapes = x_shapes_data.get('x_shapes', [])
+
+    red_squares_data = load_red_squares(red_squares_path)
+    if not red_squares_data:
+        return False
+
+    red_squares = red_squares_data.get('red_squares', [])
+
+    orange_frames_data = load_orange_frames(orange_frames_path)
+    if not orange_frames_data:
+        return False
+
+    orange_rectangles = orange_frames_data.get('rectangles', [])
+
+    yellow_frames_data = load_yellow_frames(yellow_frames_path)
+    if not yellow_frames_data:
+        # Yellow frames are optional - continue with empty list
+        yellow_rectangles = []
+    else:
+        yellow_rectangles = yellow_frames_data.get('shapes', [])
+
+    # Filter out X-shapes that overlap with red squares (silently)
+    filtered_x_shapes = filter_overlapping_x_shapes(x_shapes, red_squares)
+
+    # Print only the table
+    print_drawn_objects(green_rectangles, pink_rectangles, filtered_x_shapes, red_squares, orange_rectangles, yellow_rectangles)
+
+    # Process SVG silently
+    svg_content = read_svg_file(step2_svg_path)
+    if not svg_content:
+        return False
+
+    modified_svg = add_containers_to_svg(svg_content, green_rectangles, pink_rectangles, filtered_x_shapes, red_squares, orange_rectangles, yellow_rectangles)
+    if not modified_svg:
+        return False
+
+    # Beam categories and styling rules
+    beam_specs = [
+        ("alumBeams16", 1201, 1, "#ffffff"),
+        ("alumBeam12", 900, 1, "#F54927"),
+        ("alumBeam106", 787, 1, "#FFA805"),
+        ("alumBeam10", 750, 1, "#00C8FF"),
+        ("alumBeam9", 675, 1, "#B52FC4"),
+        ("alumBeam14", 1050, 0, "#1D915C"),
+        ("alumBeam13", 975, 0, "#9CFF9C"),
+        ("alumBeam7", 525, 0, "#FFBC85"),
+        ("alumBeam5", 376, 0, "#4084FF"),
+        ("alumBeam18", 1350, 0, "#FFD400"),
+    ]
+
+    beam_counts = {}
+    for beam_key, beam_dimension, beam_tolerance, beam_color in beam_specs:
+        modified_svg, beam_count = mark_alum_beams_by_dimension(
+            modified_svg,
+            beam_dimension,
+            beam_color,
+            beam_tolerance,
+        )
+        beam_counts[beam_key] = beam_count
+
+    # Update data.json with counts
+    update_data_json_with_counts(
+        len(green_rectangles),
+        len(pink_rectangles),
+        len(filtered_x_shapes),
+        len(red_squares),
+        len(orange_rectangles),
+        len(yellow_rectangles),
+        beam_counts
+    )
+    save_beam_counts_json(beam_counts)
+
+    # Save SVG
+    success = save_svg_file(modified_svg, output_path)
+    if not success:
+        return False
+
+    # Convert to PNG
+    png_output_path = base_dir / "files" / "Step11-results.png"
+    png_success = convert_svg_to_png(output_path, png_output_path)
+
+    return success and png_success
+
 def main():
-    """Main function for standalone execution"""
+    """Main function to process Step 10"""
     return run_step11()
 
 if __name__ == "__main__":
-    # Change to the server directory to ensure proper file paths
-    server_dir = Path(__file__).parent.parent
-    os.chdir(server_dir)
-    
-    success = main()
-    sys.exit(0 if success else 1)
-
+    main()

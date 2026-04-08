@@ -1,47 +1,334 @@
-#!/usr/bin/env python3
-"""
-Contour-based Object Detection for Blue X Shapes
-Uses OpenCV contour detection to find individual blue X shapes
-"""
-
-import cv2
-import numpy as np
-from pathlib import Path
-import argparse
 import re
 import os
-import shutil
-import sys
 import json
-from datetime import datetime
+import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
+from colorama import init, Fore, Style
+from PatternComponents import shores_box, frames_6x4, frames_5x4, frames_inBox, shores, yellow_traffic_light
 import cairosvg
 import io
 from PIL import Image
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
+def print_table(box_count, shores_count, frames6x4_count, frames5x4_count, framesinbox_count):
+    # Initialize colorama
+    init()
+    
+    # Define colors for each category
+    colors = {
+        'Shores Box': Fore.RED,
+        'Shores': Fore.BLUE,
+        'Frames 6x4': Fore.GREEN,
+        'Frames 5x4': Fore.MAGENTA,
+        'Frames In Box': Fore.YELLOW
+    }
+    
+    # Table dimensions
+    width = 45
+    
+    print(f"\n{Fore.CYAN}{'='*width}")
+    print(f"{' DETECTED ELEMENTS ':=^{width}}")
+    print(f"{'='*width}{Style.RESET_ALL}")
+    
+    # Column headers
+    print(f"{'Category':<30} {'':^8} {'Count':>6}")
+    print(f"{'-'*width}")
+    
+    # Table rows with colored bullets
+    elements = [
+        ('Shores Box', box_count),
+        ('Shores', shores_count),
+        ('Frames 6x4', frames6x4_count),
+        ('Frames 5x4', frames5x4_count),
+        ('Frames In Box', framesinbox_count)
+    ]
+    
+    for category, count in elements:
+        color = colors[category]
+        print(
+            f"{category:<30} "
+            f"{color}●{Style.RESET_ALL} "
+            f"{count:>6}"
+        )
+    
+    print(f"{'-'*width}")
+    total = sum([box_count, shores_count, frames6x4_count, frames5x4_count, framesinbox_count])
+    print(f"{'Total elements':<30} {'':^8} {total:>6}\n")
 
-def save_x_shapes_to_json(x_shapes_data, output_path):
-    """Save X shapes data to JSON file"""
+def append_counts_to_json(box_count, shores_count, frames6x4_count, frames5x4_count, framesinbox_count):
+    # This function is no longer needed as we don't store objects in data.json
+    # Keeping the function signature for compatibility but removing the JSON writing
+    pass
+
+def apply_color_to_specific_paths(input_file, output_file, red="#fb0505", blue="#0000ff", green="#70ff00", pink="#ff00cd", orange="#fb7905", yellow="#ffff00"):
+    """
+    Reads an SVG file and changes colors of specific paths:
+    - shores_box paths to red
+    - shores paths to blue
+    - frames_6x4 paths to green
+    - frames_5x4 paths to pink
+    - frames_inBox paths to orange
+    - yellow_traffic_light paths to yellow
+    """
     try:
-        # Create the JSON structure
-        json_data = {
-            "total_x_shapes": len(x_shapes_data),
-            "x_shapes": x_shapes_data
-        }
-        
-        # Write to JSON file
-        with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(json_data, f, indent=2, ensure_ascii=False)
-        
-        print(f"X shapes data saved to: {output_path}")
-        return True
-    except Exception as e:
-        print(f"Error saving X shapes data to JSON: {e}")
-        return False
+        if not os.path.exists(input_file):
+            
+            print(f"{input_file} not found.", "error")
+            return
 
-def svg_to_image(svg_path, output_path=None):
-    """Convert SVG to PIL Image"""
+        with open(input_file, "r", encoding="utf-8") as file:
+            svg_text = file.read()
+
+        # Create regex patterns
+        pattern_red = "|".join(re.escape(variation) for variation in shores_box)
+        shores_box_pattern = re.compile(rf'<path[^>]+d="[^"]*({pattern_red})[^"]*"[^>]*>')
+        
+        frames6x4_pattern = re.compile(rf'<path[^>]+d="[^"]*({"|".join(re.escape(variation) for variation in frames_6x4)})[^"]*"[^>]*>')
+        
+        # Modified frames5x4 pattern including detection of diagonal segments
+        frames5x4_base_pattern = "|".join(re.escape(variation) for variation in frames_5x4)
+        # Generic diagonal pattern allowing leg lengths from 294-301px (covers 294-299/300/301)
+        frames5x4_generic = r'h\s+(?:29[4-9]|30[0-1])\s+l\s+-?(?:29[4-9]|30[0-1]),-?(?:29[4-9]|30[0-1])'
+        frames5x4_pattern = re.compile(
+            rf'<path[^>]+d="[^"]*(?:({frames5x4_base_pattern})|({frames5x4_generic}))[^"]*"[^>]*>',
+            re.IGNORECASE)
+        
+        framesinBox_pattern = re.compile(rf'<path[^>]+d="[^"]*({"|".join(re.escape(variation) for variation in frames_inBox)})[^"]*"[^>]*>')
+
+        yellow_pattern = re.compile(rf'<path[^>]+d="[^"]*({"|".join(re.escape(variation) for variation in yellow_traffic_light)})[^"]*"[^>]*>')
+
+        shores_pattern = re.compile(rf'<path[^>]+d="[^"]*({"|".join(re.escape(variation) for variation in shores)})[^"]*"[^>]*>')
+
+        # Count matching paths
+        match_count_box = len(shores_box_pattern.findall(svg_text))
+        match_count_33_34 = len(shores_pattern.findall(svg_text))
+        match_count_frames6x4 = len(frames6x4_pattern.findall(svg_text))
+        match_count_frames5x4 = len(frames5x4_pattern.findall(svg_text))
+        match_count_framesinBox = len(framesinBox_pattern.findall(svg_text))
+
+        # Print table with counts
+        print_table(
+            match_count_box,
+            match_count_33_34,
+            match_count_frames6x4,
+            match_count_frames5x4,
+            match_count_framesinBox
+        )
+
+        # Append counts to JSON file
+        append_counts_to_json(
+            match_count_box,
+            match_count_33_34,
+            match_count_frames6x4,
+            match_count_frames5x4,
+            match_count_framesinBox
+        )
+
+        # Color change functions
+        def change_to_red(match):
+            path_tag = match.group(0)
+            if "stroke" in path_tag:
+                path_tag = re.sub(r'stroke:[#0-9a-fA-F]+', f'stroke:{red}', path_tag)
+            else:
+                path_tag = path_tag.replace("<path", f"<path stroke='{red}'", 1)
+            if "fill" in path_tag:
+                path_tag = re.sub(r'fill:[#0-9a-fA-F]+', f'fill:{red}', path_tag)
+            else:
+                path_tag = path_tag.replace("<path", f"<path fill='{red}'", 1)
+            # Change colors inside style attributes
+            path_tag = re.sub(r'style="[^"]*"', lambda m: re.sub(r'#[0-9a-fA-F]{6}', red, m.group(0)), path_tag)
+            return path_tag
+
+        def change_to_blue(match):
+            path_tag = match.group(0)
+            if "stroke" in path_tag:
+                path_tag = re.sub(r'stroke:[#0-9a-fA-F]+', f'stroke:{blue}', path_tag)
+            else:
+                path_tag = path_tag.replace("<path", f"<path stroke='{blue}'", 1)
+            if "fill" in path_tag:
+                path_tag = re.sub(r'fill:[#0-9a-fA-F]+', f'fill:{blue}', path_tag)
+            else:
+                path_tag = path_tag.replace("<path", f"<path fill='{blue}'", 1)
+            return path_tag
+
+        def change_to_green(match):
+            path_tag = match.group(0)
+            if "stroke" in path_tag:
+                path_tag = re.sub(r'stroke:[#0-9a-fA-F]+', f'stroke:{green}', path_tag)
+            else:
+                path_tag = path_tag.replace("<path", f"<path stroke='{green}'", 1)
+            if "fill" in path_tag:
+                path_tag = re.sub(r'fill:[#0-9a-fA-F]+', f'fill:{green}', path_tag)
+            else:
+                path_tag = path_tag.replace("<path", f"<path fill='{green}'", 1)
+            return path_tag
+
+        def change_to_pink(match):
+            path_tag = match.group(0)
+            if "stroke" in path_tag:
+                path_tag = re.sub(r'stroke:[#0-9a-fA-F]+', f'stroke:{pink}', path_tag)
+            else:
+                path_tag = path_tag.replace("<path", f"<path stroke='{pink}'", 1)
+            if "fill" in path_tag:
+                path_tag = re.sub(r'fill:[#0-9a-fA-F]+', f'fill:{pink}', path_tag)
+            else:
+                path_tag = path_tag.replace("<path", f"<path fill='{pink}'", 1)
+            return path_tag
+
+        def change_to_orange(match):
+            path_tag = match.group(0)
+            if "stroke" in path_tag:
+                path_tag = re.sub(r'stroke:[#0-9a-fA-F]+', f'stroke:{orange}', path_tag)
+            else:
+                path_tag = path_tag.replace("<path", f"<path stroke='{orange}'", 1)
+            if "fill" in path_tag:
+                path_tag = re.sub(r'fill:[#0-9a-fA-F]+', f'fill:{orange}', path_tag)
+            else:
+                path_tag = path_tag.replace("<path", f"<path fill='{orange}'", 1)
+            return path_tag
+
+        def change_to_yellow(match):
+            path_tag = match.group(0)
+            if "stroke" in path_tag:
+                path_tag = re.sub(r'stroke:[#0-9a-fA-F]+', f'stroke:{yellow}', path_tag)
+            else:
+                path_tag = path_tag.replace("<path", f"<path stroke='{yellow}'", 1)
+            if "fill" in path_tag:
+                path_tag = re.sub(r'fill:[#0-9a-fA-F]+', f'fill:{yellow}', path_tag)
+            else:
+                path_tag = path_tag.replace("<path", f"<path fill='{yellow}'", 1)
+            return path_tag
+
+        def change_adjacent_paths_to_pink(svg_text):
+            """
+            Find and color adjacent paths that have lengths 294-300 pixels in their d parameter.
+            Adjacent means the path ID is within 8 positions (greater or lesser) of a pink diagonal path ID.
+            """
+            
+            def extract_path_id_number(path_id):
+                """Extract numeric part from path ID (e.g., 'path13380' -> 13380)"""
+                match = re.search(r'(\d+)', path_id)
+                return int(match.group(1)) if match else None
+            
+            def color_path_pink(path_tag):
+                """Apply pink color to a path tag."""
+                new_tag = path_tag
+                
+                # Handle stroke
+                if "stroke" in new_tag:
+                    new_tag = re.sub(r'stroke:[#0-9a-fA-F]+', f'stroke:{pink}', new_tag)
+                else:
+                    new_tag = new_tag.replace("<path", f"<path stroke='{pink}'", 1)
+                
+                # Handle fill
+                if "fill" in new_tag:
+                    new_tag = re.sub(r'fill:[#0-9a-fA-F]+', f'fill:{pink}', new_tag)
+                else:
+                    new_tag = new_tag.replace("<path", f"<path fill='{pink}'", 1)
+                
+                return new_tag
+            
+            # Step 1: Find all diagonal paths (frames5x4) that will be colored pink
+            diagonal_path_ids = set()
+            for match in frames5x4_pattern.finditer(svg_text):
+                path_tag = match.group(0)
+                id_match = re.search(r'id="([^"]+)"', path_tag)
+                if id_match:
+                    path_id = id_match.group(1)
+                    path_id_num = extract_path_id_number(path_id)
+                    if path_id_num is not None:
+                        diagonal_path_ids.add(path_id_num)
+                        
+                        print(f"[DIAG] Found diagonal path: {path_id} (ID number: {path_id_num})")
+            
+            
+            print(f"Found {len(diagonal_path_ids)} diagonal paths with numeric IDs")
+            
+            # Step 2: Find all paths that contain lengths 294-300 or "V 9114" in their d parameter
+            pattern = re.compile(r'<path[^>]+d="[^"]*(?:\b(29[4-9]|300)\b|V\s+9114)[^"]*"[^>]*>', re.IGNORECASE)
+            
+            modifications = []
+            adjacent_count = 0
+            
+            for match in pattern.finditer(svg_text):
+                path_tag = match.group(0)
+                
+                # Get path ID
+                id_match = re.search(r'id="([^"]+)"', path_tag)
+                if not id_match:
+                    continue
+                
+                path_id = id_match.group(1)
+                path_id_num = extract_path_id_number(path_id)
+                
+                if path_id_num is None:
+                    continue
+                
+                # Get the matched length
+                length = match.group(1)
+                
+                # Check if this path is adjacent to any diagonal path (within 8 positions)
+                is_adjacent = False
+                closest_diagonal = None
+                min_distance = float('inf')
+                
+                for diagonal_id in diagonal_path_ids:
+                    distance = abs(path_id_num - diagonal_id)
+                    if distance <= 8 and distance < min_distance:
+                        is_adjacent = True
+                        closest_diagonal = diagonal_id
+                        min_distance = distance
+                
+                if is_adjacent:
+                    # Get the d parameter for logging
+                    d_match = re.search(r'd="([^"]+)"', path_tag)
+                    d_str = d_match.group(1) if d_match else "unknown"
+                    
+                    
+                    print(f"[FOUND] Path {path_id} (ID: {path_id_num}) contains length {length} in d='{d_str}'")
+                    print(f"[ADJACENT] Distance {min_distance} from diagonal path ID {closest_diagonal}")
+                    
+                    # Color this path pink
+                    pink_tag = color_path_pink(path_tag)
+                    modifications.append((path_tag, pink_tag))
+                    adjacent_count += 1
+                    
+                    print(f"[NEIGH] id={path_id} → PINK (adjacent to diagonal ID {closest_diagonal}, distance: {min_distance})")
+            
+            print(f"Total adjacent paths with lengths 294-300: {adjacent_count}")
+            print(f"Total modifications to apply: {len(modifications)}")
+            
+            # Apply all modifications
+            modified_text = svg_text
+            for original_tag, pink_tag in modifications:
+                modified_text = modified_text.replace(original_tag, pink_tag)
+            
+            return modified_text
+
+        # Apply colors
+        modified_svg_text = shores_box_pattern.sub(change_to_red, svg_text)
+        modified_svg_text = shores_pattern.sub(change_to_blue, modified_svg_text)
+        
+        # First apply adjacent path coloring, then the diagonal paths
+        modified_svg_text = change_adjacent_paths_to_pink(modified_svg_text)
+        modified_svg_text = frames5x4_pattern.sub(change_to_pink, modified_svg_text)
+        modified_svg_text = framesinBox_pattern.sub(change_to_orange, modified_svg_text)
+        modified_svg_text = yellow_pattern.sub(change_to_yellow, modified_svg_text)
+        modified_svg_text = frames6x4_pattern.sub(change_to_green, modified_svg_text)
+
+        # Write modified content
+        with open(output_file, "w", encoding="utf-8") as file:
+            file.write(modified_svg_text)
+
+        
+        print("SVG file updated successfully.")
+
+    except Exception as e:
+        
+        print(f"Error applying colors: {e}", "error")
+
+def svg_to_png(svg_path, png_path):
+    """Convert SVG to PNG format"""
     try:
         # Convert SVG to PNG bytes
         png_data = cairosvg.svg2png(url=svg_path)
@@ -49,319 +336,64 @@ def svg_to_image(svg_path, output_path=None):
         # Convert to PIL Image
         image = Image.open(io.BytesIO(png_data))
         
-        if output_path:
-            # Save as PNG if output path is provided
-            image.save(output_path, 'PNG')
-            
-            print(f"SVG converted and saved as: {output_path}")
+        # Save as PNG
+        image.save(png_path, 'PNG')
         
-        return image
-    except Exception as e:
-        
-        print(f"Error converting SVG to image: {e}", "error")
-        return None
-
-def detect_blue_x_shapes(image_path, output_path='results.png', json_output_path=None):
-    """Detect individual blue X shapes using contour detection"""
-    
-    print(f"Processing image: {image_path}")
-    
-    # Check if input is SVG and convert if needed
-    if str(image_path).lower().endswith('.svg'):
-        
-        print("Converting SVG to image for processing...")
-        pil_image = svg_to_image(image_path)
-        if pil_image is None:
-            return 0, []
-        
-        # Convert PIL Image to OpenCV format
-        img = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
-    else:
-        # Read image directly if it's not SVG
-        img = cv2.imread(str(image_path))
-    
-    if img is None:
-        
-        print(f"Error: Could not read image {image_path}", "error")
-        return 0, []
-    
-    # Convert to HSV for better color detection
-    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-    
-    # Define blue color range in HSV
-    # Blue in HSV: H=120, S=255, V=255
-    lower_blue = np.array([100, 50, 50])   # Darker blue
-    upper_blue = np.array([130, 255, 255]) # Lighter blue
-    
-    # Create mask for blue objects
-    blue_mask = cv2.inRange(hsv, lower_blue, upper_blue)
-    
-    # Apply morphological operations to clean up the mask
-    kernel = np.ones((3,3), np.uint8)
-    blue_mask = cv2.morphologyEx(blue_mask, cv2.MORPH_CLOSE, kernel)
-    blue_mask = cv2.morphologyEx(blue_mask, cv2.MORPH_OPEN, kernel)
-    
-    # Find contours
-    contours, _ = cv2.findContours(blue_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    
-    # Filter contours based on area and shape
-    valid_contours = []
-    for contour in contours:
-        area = cv2.contourArea(contour)
-        
-        # Filter by area (adjust these values based on your X shapes)
-        if 30 < area < 2000:  # Broader range to catch all potential X shapes
-            # Get bounding rectangle
-            x, y, w, h = cv2.boundingRect(contour)
-            
-            # Check aspect ratio (X shapes should be roughly square)
-            aspect_ratio = w / h if h > 0 else 0
-            # Ensure width/height ratio is within 1.5 tolerance (max 1.5:1 or 1:1.5)
-            if 0.67 < aspect_ratio < 1.5:  # 1/1.5 = 0.67, 1.5/1 = 1.5
-                # Additional check: ensure reasonable size
-                if w >= 5 and h >= 5:  # Minimum size requirement
-                    valid_contours.append((contour, x, y, w, h, area))
-    
-    print(f"Found {len(valid_contours)} initial contours")
-    
-    # Group nearby contours to identify individual X shapes
-    if len(valid_contours) > 0:
-        # Sort by area to prioritize larger contours
-        valid_contours.sort(key=lambda x: x[5], reverse=True)
-        
-        # Group contours that are close to each other
-        grouped_contours = []
-        used_indices = set()
-        
-        for i, (contour, x, y, w, h, area) in enumerate(valid_contours):
-            if i in used_indices:
-                continue
-                
-            # Find contours that are close to this one
-            nearby_contours = [(contour, x, y, w, h, area)]
-            used_indices.add(i)
-            
-            center_x = x + w/2
-            center_y = y + h/2
-            
-            for j, (contour2, x2, y2, w2, h2, area2) in enumerate(valid_contours):
-                if j in used_indices:
-                    continue
-                    
-                center_x2 = x2 + w2/2
-                center_y2 = y2 + h2/2
-                
-                # Calculate distance between centers
-                distance = ((center_x - center_x2)**2 + (center_y - center_y2)**2)**0.5
-                
-                # If contours are very close, group them (much stricter for X shapes)
-                if distance < 15:  # Reduced from 30 to 15 for tighter grouping
-                    nearby_contours.append((contour2, x2, y2, w2, h2, area2))
-                    used_indices.add(j)
-            
-            # Calculate combined bounding box for the group
-            if nearby_contours:
-                min_x = min(c[1] for c in nearby_contours)
-                min_y = min(c[2] for c in nearby_contours)
-                max_x = max(c[1] + c[3] for c in nearby_contours)
-                max_y = max(c[2] + c[4] for c in nearby_contours)
-                
-                group_w = max_x - min_x
-                group_h = max_y - min_y
-                
-                # Apply aspect ratio constraint to grouped bounding boxes too
-                group_aspect_ratio = group_w / group_h if group_h > 0 else 0
-                if 0.67 < group_aspect_ratio < 1.5:  # Same 1.5 tolerance as individual contours
-                    grouped_contours.append((nearby_contours, min_x, min_y, group_w, group_h))
-                else:
-                    # If grouped bounding box doesn't meet aspect ratio, treat each contour individually
-                    for contour, x, y, w, h, area in nearby_contours:
-                        grouped_contours.append(([(contour, x, y, w, h, area)], x, y, w, h))
-        
-        valid_contours = grouped_contours
-        print(f"Grouped into {len(valid_contours)} X shapes")
-    
-    # Collect X shapes data for JSON output
-    x_shapes_data = []
-    
-    # Draw results
-    result_img = img.copy()
-    
-    # Draw contours and bounding boxes
-    for i, (contours_group, x, y, w, h) in enumerate(valid_contours):
-        # Draw all contours in the group
-        for contour, _, _, _, _, _ in contours_group:
-            cv2.drawContours(result_img, [contour], -1, (0, 255, 0), 1)
-        
-        # Draw bounding box around the group
-        cv2.rectangle(result_img, (int(x), int(y)), (int(x + w), int(y + h)), (0, 255, 0), 2)
-        
-        # Add label
-        label = f"X{i+1}"
-        cv2.putText(result_img, label, (int(x), int(y)-10), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-        
-        # Collect data for JSON
-        x_shape_data = {
-            "id": i + 1,
-            "x": float(x),
-            "y": float(y),
-            "width": float(w),
-            "height": float(h),
-            "center_x": float(x + w / 2),
-            "center_y": float(y + h / 2),
-            "area": float(w * h),
-            "contours_count": len(contours_group)
-        }
-        x_shapes_data.append(x_shape_data)
-        
-        print(f"X{i+1}: Size={w:.1f}x{h:.1f}, Contours={len(contours_group)}")
-    
-    # Save result image
-    if output_path.lower().endswith('.svg'):
-        # Convert back to PIL and save as SVG-compatible format
-        result_pil = Image.fromarray(cv2.cvtColor(result_img, cv2.COLOR_BGR2RGB))
-        # For now, save as PNG with SVG extension (you might want to convert back to SVG)
-        png_path = output_path.replace('.svg', '.png')
-        cv2.imwrite(png_path, result_img)
-        print(f"Result saved as: {png_path} (PNG format)")
-    else:
-        cv2.imwrite(output_path, result_img)
-        print(f"Result saved as: {output_path}")
-    
-    # Save X shapes data to JSON if path provided
-    if json_output_path:
-        save_x_shapes_to_json(x_shapes_data, json_output_path)
-    
-    print(f"Total X shapes detected: {len(valid_contours)}")
-    
-    return len(valid_contours), x_shapes_data
-
-def process_svg_colors(input_svg, output_svg):
-    """
-    Process SVG colors by replacing most hex colors with #202124,
-    while keeping #0000ff and #fb0505 unchanged.
-    """
-    try:
-        # Read the SVG file
-        with open(input_svg, 'r', encoding='utf-8') as file:
-            content = file.read()
-        
-        # Find all hex color codes (#xxxxxx)
-        hex_pattern = r'#([0-9a-fA-F]{6})'
-        
-        def replace_color(match):
-            color = match.group(1).lower()
-            # Keep #0000ff and #fb0505 unchanged, replace all others with #202124
-            if color == '0000ff' or color == 'fb0505':
-                return match.group(0)  # Return original match unchanged
-            else:
-                return '#202124'
-        
-        # Replace colors using the function
-        processed_content = re.sub(hex_pattern, replace_color, content)
-        
-        # Write the processed content to a new file
-        with open(output_svg, 'w', encoding='utf-8') as file:
-            file.write(processed_content)
-        
-        
-        print("SVG processing completed!")
-        print("Original colors replaced with #202124 (except #0000ff)")
-        print(f"Output saved to: {output_svg}")
-        
-    except FileNotFoundError:
-        
-        print(f"Error: Could not find input file {input_svg}", "error")
-    except Exception as e:
-        
-        print(f"Error processing SVG: {e}", "error")
-
-def run_step5():
-    """
-    Run Step5 processing - detect blue X shapes
-    """
-    try:
-        # Get the current working directory to determine the correct paths
-        current_dir = os.getcwd()
-        
-        # If we're in the processors directory, use relative paths
-        if current_dir.endswith('processors'):
-            input_svg = "../files/Step4.svg"
-            output_svg = "../files/Step5.svg"
-            output_results = "../files/Step5-results.svg"
-            json_output = "../files/tempData/x-shores.json"
-        else:
-            # If we're in the server directory (when called from pipeline), use direct paths
-            input_svg = "files/Step4.svg"
-            output_svg = "files/Step5.svg"
-            output_results = "files/Step5-results.svg"
-            json_output = "files/tempData/x-shores.json"
-        
-        # First process SVG colors
-        process_svg_colors(input_svg, output_svg)
-        
-        # Then detect blue X shapes on the processed SVG
-        
-        print(f"Detecting blue X shapes in: {output_svg}")
-        count, x_shapes_data = detect_blue_x_shapes(output_svg, output_results, json_output)
-        print(f"\nFinal count: {count} blue X shapes")
-        
+        print(f"✅ SVG converted to PNG: {png_path}")
         return True
         
     except Exception as e:
         
-        print(f"Error in processing: {e}", "error")
+        print(f"❌ Error converting SVG to PNG: {e}", "error")
         return False
 
-def main():
-    parser = argparse.ArgumentParser(description='Contour-based Blue X Detection')
-    parser.add_argument('--source', type=str, default='test-images/test1.png',
-                       help='Path to image')
-    parser.add_argument('--output', type=str, default='results.png',
-                       help='Output image path')
-    
-    args = parser.parse_args()
-    
-    # Check if source exists
-    source_path = Path(args.source)
-    if not source_path.exists():
-        
-        print(f"Error: Source not found at {source_path}", "error")
-        return
-    
-    # Detect X shapes
-    count, x_shapes_data = detect_blue_x_shapes(source_path, args.output)
-    
-    print(f"\nFinal count: {count} blue X shapes")
-
-if __name__ == "__main__":
+def run_step5():
+    """
+    Main function to run Step4 processing
+    """
     try:
         # Get the current working directory to determine the correct paths
         current_dir = os.getcwd()
         
         # If we're in the processors directory, use relative paths
         if current_dir.endswith('processors'):
-            input_svg = "../files/Step4.svg"
-            output_svg = "../files/Step5.svg"
-            output_results = "../files/Step5-results.svg"
-            json_output = "../files/tempData/x-shores.json"
+            input_svg = "../files/Step3.svg"
+            output_svg = "../files/Step4.svg"
         else:
             # If we're in the server directory (when called from pipeline), use direct paths
-            input_svg = "files/Step4.svg"
-            output_svg = "files/Step5.svg"
-            output_results = "files/Step5-results.svg"
-            json_output = "files/tempData/x-shores.json"
+            input_svg = "files/Step3.svg"
+            output_svg = "files/Step4.svg"
         
-        # First process SVG colors
-        process_svg_colors(input_svg, output_svg)
+        # Check if input file exists
+        if not os.path.exists(input_svg):
+            
+            print(f"Error: Input file '{input_svg}' not found!", "error")
+            print(f"Current working directory: {os.getcwd()}", "error")
+            print(f"Tried path: {input_svg}", "error")
+            return False
         
-        # Then detect blue X shapes on the processed SVG
+        apply_color_to_specific_paths(input_svg, output_svg)
         
-        print(f"Detecting blue X shapes in: {output_svg}")
-        count, x_shapes_data = detect_blue_x_shapes(output_svg, output_results, json_output)
-        print(f"\nFinal count: {count} blue X shapes")
+        # Convert SVG to PNG
+        output_png = output_svg.replace('.svg', '-results.png')
+        if svg_to_png(output_svg, output_png):
+            
+            print(f"   - Generated PNG: {output_png}")
+        else:
+            print(f"   - Warning: PNG conversion failed", "warning")
         
+        
+        print(f"✅ Step4 completed successfully:")
+        print(f"   - Input SVG: {input_svg}")
+        print(f"   - Processed SVG: {output_svg}")
+        print(f"   - Generated PNG: {output_png}")
+        return True
+            
     except Exception as e:
         
-        print(f"Error in processing: {e}", "error")
+        print(f"An error occurred: {str(e)}", "error")
+        return False
+
+# Main execution
+if __name__ == "__main__":
+    run_step5()

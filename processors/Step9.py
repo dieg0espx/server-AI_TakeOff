@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Contour-based Object Detection for Orange Rectangles
-Uses OpenCV contour detection to find individual orange rectangles
+Contour-based Object Detection for Green Rectangles
+Uses OpenCV contour detection to find individual green rectangles
 """
 
 import re
@@ -40,8 +40,8 @@ def svg_to_image(svg_path, output_path=None):
         print(f"Error converting SVG to image: {e}", "error")
         return None
 
-def detect_orange_rectangles(image_path, output_path='results.png'):
-    """Detect individual orange rectangles using contour detection"""
+def detect_green_rectangles(image_path, output_path='results.png'):
+    """Detect individual green rectangles using contour detection"""
     
     print(f"Processing image: {image_path}")
     
@@ -65,22 +65,22 @@ def detect_orange_rectangles(image_path, output_path='results.png'):
     # Convert to HSV for better color detection
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
     
-    # Define orange color range in HSV for #fb7905
-    # Convert #fb7905 to HSV: H=25, S=245, V=251 (bright orange)
+    # Define green color range in HSV for #70ff00
+    # Convert #70ff00 to HSV: H=120, S=255, V=255 (bright green)
     # Adjust range to catch variations in lighting and image quality
-    lower_orange = np.array([10, 100, 100])   # Darker orange
-    upper_orange = np.array([35, 255, 255])   # Lighter orange
+    lower_green = np.array([35, 50, 50])   # Darker green
+    upper_green = np.array([85, 255, 255]) # Lighter green
     
-    # Create mask for orange objects
-    orange_mask = cv2.inRange(hsv, lower_orange, upper_orange)
+    # Create mask for green objects
+    green_mask = cv2.inRange(hsv, lower_green, upper_green)
     
     # Apply morphological operations to clean up the mask
     kernel = np.ones((3,3), np.uint8)
-    orange_mask = cv2.morphologyEx(orange_mask, cv2.MORPH_CLOSE, kernel)
-    orange_mask = cv2.morphologyEx(orange_mask, cv2.MORPH_OPEN, kernel)
+    green_mask = cv2.morphologyEx(green_mask, cv2.MORPH_CLOSE, kernel)
+    green_mask = cv2.morphologyEx(green_mask, cv2.MORPH_OPEN, kernel)
     
     # Find contours
-    contours, _ = cv2.findContours(orange_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(green_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
     # Filter contours based on area and shape
     valid_contours = []
@@ -210,7 +210,7 @@ def detect_orange_rectangles(image_path, output_path='results.png'):
     
     return len(valid_contours), rectangles_data
 
-def save_rectangles_to_json(rectangles_data, output_file='orangeFrames.json'):
+def save_rectangles_to_json(rectangles_data, output_file='greenFrames.json'):
     """Save rectangle data to JSON file"""
     try:
         # Get the current working directory to determine the correct paths
@@ -228,7 +228,7 @@ def save_rectangles_to_json(rectangles_data, output_file='orangeFrames.json'):
             "total_rectangles": len(rectangles_data),
             "rectangles": rectangles_data,
             "metadata": {
-                "description": "Orange rectangle detection results",
+                "description": "Green rectangle detection results",
                 "format": "x, y coordinates (top-left corner), width, height, center coordinates"
             }
         }
@@ -352,11 +352,11 @@ def process_svg_colors():
     # If we're in the processors directory, use relative paths
     if current_dir.endswith('processors'):
         input_svg = "../files/Step4.svg"
-        output_svg = "../files/Step9.svg"
+        output_svg = "../files/Step8.svg"
     else:
         # If we're in the server directory (when called from pipeline), use direct paths
         input_svg = "files/Step4.svg"
-        output_svg = "files/Step9.svg"
+        output_svg = "files/Step8.svg"
     
     # Read the SVG file
     with open(input_svg, 'r', encoding='utf-8') as file:
@@ -367,8 +367,8 @@ def process_svg_colors():
     
     def replace_color(match):
         color = match.group(1).lower()
-        # Keep #fb7905 unchanged, replace all others with #202124
-        if color == 'fb7905':
+        # Keep #0000ff and #fb0505 unchanged, replace all others with #202124
+        if color == '70ff00':
             return match.group(0)  # Return original match unchanged
         else:
             return '#202124'
@@ -376,18 +376,22 @@ def process_svg_colors():
     # Replace colors using the function
     processed_content = re.sub(hex_pattern, replace_color, content)
     
-    # Now convert #fb7905 (orange) stroke elements to filled shapes
-    # Pattern to match style attributes with #fb7905 stroke and fill:none
-    stroke_to_fill_pattern = r'style="([^"]*fill:none[^"]*stroke:#fb7905[^"]*)"'
+    # Now convert #70ff00 (green) and #fb0505 (pink) stroke elements to filled shapes
+    # Pattern to match style attributes with #70ff00 or #fb0505 stroke and fill:none
+    stroke_to_fill_pattern = r'style="([^"]*fill:none[^"]*stroke:#(70ff00|fb0505)[^"]*)"'
     
     def convert_stroke_to_fill(match):
         style_attr = match.group(1)
+        stroke_color = match.group(2)  # Get the matched color (70ff00 or fb0505)
         
         # Replace fill:none with the appropriate fill color
-        new_style = style_attr.replace('fill:none', 'fill:#fb7905')
+        if stroke_color == '70ff00':
+            new_style = style_attr.replace('fill:none', 'fill:#70ff00')
+        else:  # fb0505
+            new_style = style_attr.replace('fill:none', 'fill:#fb0505')
         
         # Remove stroke-related attributes
-        new_style = re.sub(r'stroke:#fb7905[^;]*;?', '', new_style)
+        new_style = re.sub(r'stroke:#(70ff00|fb0505)[^;]*;?', '', new_style)
         new_style = re.sub(r'stroke-width:[^;]*;?', '', new_style)
         new_style = re.sub(r'stroke-linecap:[^;]*;?', '', new_style)
         new_style = re.sub(r'stroke-linejoin:[^;]*;?', '', new_style)
@@ -405,8 +409,8 @@ def process_svg_colors():
     processed_content = re.sub(stroke_to_fill_pattern, convert_stroke_to_fill, processed_content)
     
     # Convert Z-shaped paths to rectangles
-    # Pattern to match path elements with #fb7905 fill - updated for multi-line structure
-    path_pattern = r'<path\s+[^>]*?style="([^"]*fill:#fb7905[^"]*)"[^>]*?d="([^"]*)"[^>]*?/>'
+    # Pattern to match path elements with #70ff00 fill - updated for multi-line structure
+    path_pattern = r'<path\s+[^>]*?style="([^"]*fill:#70ff00[^"]*)"[^>]*?d="([^"]*)"[^>]*?/>'
     
     def path_to_rect_updated(match):
         style = match.group(1)
@@ -458,14 +462,14 @@ def process_svg_colors():
     
     
     print("SVG processing completed!")
-    print("Original colors replaced with #202124 (except #fb7905)")
-    print("#fb7905 stroke elements converted to filled shapes")
+    print("Original colors replaced with #202124 (except #70ff00)")
+    print("#70ff00 stroke elements converted to filled shapes")
     print("Z-shaped paths converted to squares/rectangles")
     print(f"Output saved to: {output_svg}")
 
 def run_step9():
     """
-    Run Step9 processing - detect orange rectangles
+    Run Step8 processing - detect green rectangles
     """
     try:
         # Get the current working directory to determine the correct paths
@@ -474,25 +478,25 @@ def run_step9():
         # If we're in the processors directory, use relative paths
         if current_dir.endswith('processors'):
             input_svg = "../files/Step4.svg"
-            output_svg = "../files/Step9.svg"
-            output_results = "../files/Step9-results.png"
+            output_svg = "../files/Step8.svg"
+            output_results = "../files/Step8-results.png"
         else:
             # If we're in the server directory (when called from pipeline), use direct paths
             input_svg = "files/Step4.svg"
-            output_svg = "files/Step9.svg"
-            output_results = "files/Step9-results.png"
+            output_svg = "files/Step8.svg"
+            output_results = "files/Step8-results.png"
         
         # First process SVG colors and convert paths to rectangles
         process_svg_colors()
         
-        # Then detect orange rectangles on the processed SVG
+        # Then detect green rectangles on the processed SVG
         
-        print(f"Detecting orange rectangles in: {output_svg}")
-        count, rectangles_data = detect_orange_rectangles(output_svg, output_results)
-        print(f"\nFinal count: {count} orange rectangles")
+        print(f"Detecting green rectangles in: {output_svg}")
+        count, rectangles_data = detect_green_rectangles(output_svg, output_results)
+        print(f"\nFinal count: {count} green rectangles")
         
         # Save rectangle data to JSON (always save, even if empty)
-        save_rectangles_to_json(rectangles_data if rectangles_data else [], 'orangeFrames.json')
+        save_rectangles_to_json(rectangles_data if rectangles_data else [], 'greenFrames.json')
         
         return True
         
@@ -502,7 +506,7 @@ def run_step9():
         return False
 
 def main():
-    parser = argparse.ArgumentParser(description='Contour-based Orange Rectangle Detection')
+    parser = argparse.ArgumentParser(description='Contour-based Green Rectangle Detection')
     parser.add_argument('--source', type=str, default='test/test.png',
                        help='Path to image')
     parser.add_argument('--output', type=str, default='results.png',
@@ -517,13 +521,13 @@ def main():
         return
     
     # Detect rectangles
-    count, rectangles_data = detect_orange_rectangles(source_path, args.output)
+    count, rectangles_data = detect_green_rectangles(source_path, args.output)
     
-    print(f"\nFinal count: {count} orange rectangles")
+    print(f"\nFinal count: {count} green rectangles")
     
     # Save rectangle data to JSON
     if rectangles_data:
-        save_rectangles_to_json(rectangles_data, 'orangeFrames.json')
+        save_rectangles_to_json(rectangles_data, 'greenFrames.json')
 
 if __name__ == "__main__":
     try:
@@ -532,26 +536,26 @@ if __name__ == "__main__":
         
         # If we're in the processors directory, use relative paths
         if current_dir.endswith('processors'):
-            input_svg = "../files/Step9.svg"
-            output_svg = "../files/Step9.svg"
-            output_results = "../files/Step9-results.png"
+            input_svg = "../files/Step8.svg"
+            output_svg = "../files/Step8.svg"
+            output_results = "../files/Step8-results.png"
         else:
             # If we're in the server directory (when called from pipeline), use direct paths
-            input_svg = "files/Step9.svg"
-            output_svg = "files/Step9.svg"
-            output_results = "files/Step9-results.png"
+            input_svg = "files/Step8.svg"
+            output_svg = "files/Step8.svg"
+            output_results = "files/Step8-results.png"
         
         # First process SVG colors and convert paths to rectangles
         process_svg_colors()
         
-        # Then detect orange rectangles on the processed SVG
+        # Then detect green rectangles on the processed SVG
         
-        print(f"Detecting orange rectangles in: {output_svg}")
-        count, rectangles_data = detect_orange_rectangles(output_svg, output_results)
-        print(f"\nFinal count: {count} orange rectangles")
+        print(f"Detecting green rectangles in: {output_svg}")
+        count, rectangles_data = detect_green_rectangles(output_svg, output_results)
+        print(f"\nFinal count: {count} green rectangles")
         
         # Save rectangle data to JSON (always save, even if empty)
-        save_rectangles_to_json(rectangles_data if rectangles_data else [], 'orangeFrames.json')
+        save_rectangles_to_json(rectangles_data if rectangles_data else [], 'greenFrames.json')
         
     except Exception as e:
         

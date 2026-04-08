@@ -12,13 +12,17 @@ The SVG has:
 Output: files/test.svg with color modifications applied.
 """
 
+import os
 import re
 import xml.etree.ElementTree as ET
 
 SVG_FILE = "files/final_marked.svg"
 OUTPUT_FILE = "files/test.svg"
 
-# Transform parameters from matrix(0.16, 0, 0, -0.16, 18.666666, 2240)
+# When called from pipeline, these get overridden
+PIPELINE_MODE = False
+
+# Default transform parameters (will be read dynamically from SVG)
 TX_A = 0.16
 TX_D = -0.16
 TX_E = 18.666666
@@ -240,17 +244,41 @@ def box_contained(container, path_box):
             path_box[3] <= container[3])
 
 
+REFERENCE_SCALE = 0.16  # Scale factor the glyph patterns were developed against
+
+
 def get_rel_d(d):
     """Extract the relative drawing commands (everything after 'm x,y ')."""
     m = re.match(r'm\s+[-\d.]+,[-\d.]+\s+(.*)', d)
     return m.group(1) if m else d
 
 
+def normalize_rel_d(rel_d):
+    """
+    Normalize relative path commands to the reference scale (0.16).
+    This makes glyph patterns work regardless of SVG resolution.
+    """
+    scale_ratio = abs(TX_A) / REFERENCE_SCALE
+    if abs(scale_ratio - 1.0) < 0.01:
+        return rel_d  # Already at reference scale
+
+    def scale_number(match):
+        num = float(match.group(0))
+        scaled = round(num * scale_ratio)
+        return str(int(scaled))
+
+    # Scale all numbers in the path but preserve commands
+    normalized = re.sub(r'-?\d+', scale_number, rel_d)
+    return normalized
+
+
 def identify_glyph(rel_d):
     """Identify which digit a glyph path represents based on its relative path commands."""
+    # Normalize to reference scale before matching
+    normalized = normalize_rel_d(rel_d)
     for digit, patterns in GLYPH_SIGNATURES.items():
         for pat in patterns:
-            if pat.search(rel_d):
+            if pat.search(normalized):
                 return digit
     return None
 
@@ -276,10 +304,22 @@ def get_containers(root, prefix):
 
 def get_g10_paths(root):
     """Extract all paths from the g10 transform group with screen-space bounding boxes."""
+    global TX_A, TX_D, TX_E, TX_F
+
     g10 = root.find('.//{http://www.w3.org/2000/svg}g[@id="g10"]')
     if g10 is None:
         print("ERROR: Could not find g10")
         return []
+
+    # Read transform dynamically from g10
+    transform = g10.get('transform', '')
+    m = re.match(r'matrix\(([-\d.]+),([-\d.]+),([-\d.]+),([-\d.]+),([-\d.]+),([-\d.]+)\)', transform.replace(' ', ''))
+    if m:
+        TX_A = float(m.group(1))
+        TX_D = float(m.group(4))
+        TX_E = float(m.group(5))
+        TX_F = float(m.group(6))
+        print(f"  Transform: a={TX_A}, d={TX_D}, e={TX_E}, f={TX_F}")
 
     paths = []
     for path in g10.iter('{http://www.w3.org/2000/svg}path'):
@@ -457,24 +497,88 @@ def process_container_group(prefix, containers, paths, svg_content):
     return svg_content, changed_count, moved_count
 
 
-def main():
+def collect_all_contained_path_ids(all_containers, paths):
+    """Collect IDs of all paths that are fully contained in ANY container."""
+    contained_ids = set()
+    for containers in all_containers.values():
+        for num in containers:
+            cbox = containers[num]['screen_bbox']
+            for p in paths:
+                if box_contained(cbox, p['screen_bbox']):
+                    contained_ids.add(p['id'])
+    return contained_ids
+
+
+def remove_non_frame_elements(svg_content, contained_ids, color='4e4e4e'):
+    """
+    Remove all elements with the given stroke/fill color that are not inside any container.
+    Uses string replacement on individual elements to avoid breaking chained tags.
+    """
+    removed = 0
+
+    # Collect path IDs with #4e4e4e that are NOT in any container
+    # Find all path IDs that have this color
+    path_id_pattern = re.compile(
+        rf'<path\s[^>]*?id="(path\d+)"[^>]*?#{color}[^>]*/>', re.IGNORECASE
+    )
+
+    ids_to_remove = set()
+    for m in path_id_pattern.finditer(svg_content):
+        pid = m.group(1)
+        if pid not in contained_ids:
+            ids_to_remove.add(pid)
+
+    # Remove each path by its unique ID - replace entire <path.../> element with empty string
+    for pid in ids_to_remove:
+        # Use a precise pattern that matches this specific path element
+        # The path ends at the first /> after its id
+        pattern = rf'<path\s[^>]*?id="{pid}"[^>]*/>'
+        match = re.search(pattern, svg_content)
+        if match:
+            svg_content = svg_content[:match.start()] + svg_content[match.end():]
+            removed += 1
+
+    # Remove text elements with that color (dimension labels outside containers)
+    # Text elements: <text ...>...</text> with possible <tspan> inside
+    text_pattern = re.compile(
+        rf'<text\s[^>]*?#{color}[^>]*>.*?</text>', re.IGNORECASE | re.DOTALL
+    )
+    # Collect all, then remove in reverse order to preserve positions
+    text_matches = list(text_pattern.finditer(svg_content))
+    for match in reversed(text_matches):
+        svg_content = svg_content[:match.start()] + svg_content[match.end():]
+        removed += 1
+
+    return svg_content, removed
+
+
+def process_svg(input_file, output_file):
+    """
+    Process an SVG file: recolor glyphs in containers and move labels.
+    Can be called standalone or from the pipeline.
+    """
     # ── Parse SVG ──
-    tree = ET.parse(SVG_FILE)
+    tree = ET.parse(input_file)
     root = tree.getroot()
 
     paths = get_g10_paths(root)
     print(f"Found {len(paths)} paths in g10 group\n")
 
     # ── Load SVG content ──
-    with open(SVG_FILE, 'r', encoding='utf-8') as f:
+    with open(input_file, 'r', encoding='utf-8') as f:
         svg_content = f.read()
 
     total_changed = 0
     total_moved = 0
 
+    # ── Collect all containers ──
+    all_containers = {}
+    for prefix in ['pink_container', 'green_container', 'orange_container']:
+        all_containers[prefix] = get_containers(root, prefix)
+
     # ── Process each container type ──
     for prefix in ['pink_container', 'green_container', 'orange_container']:
-        containers = get_containers(root, prefix)
+        containers = all_containers[prefix]
         print(f"\n{'=' * 60}")
         print(f"Processing {prefix} ({len(containers)} containers)")
         print(f"{'=' * 60}\n")
@@ -486,12 +590,57 @@ def main():
         total_moved += moved
 
     # ── Save output ──
-    with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
+    with open(output_file, 'w', encoding='utf-8') as f:
         f.write(svg_content)
 
     print(f"\nTotal paths recolored: {total_changed}")
     print(f"Total labels moved: {total_moved}")
-    print(f"Output saved to: {OUTPUT_FILE}")
+    print(f"Output saved to: {output_file}")
+
+    return True
+
+
+def run_step13():
+    """
+    Pipeline entry point. Processes both Step11 SVG variants in-place.
+    Called from main.py after Step11, before SVG upload.
+    """
+    try:
+        current_dir = os.getcwd()
+
+        if current_dir.endswith('processors'):
+            base = ".."
+        else:
+            base = "."
+
+        success = True
+
+        # Process each Step11 SVG variant (overwrite in-place)
+        for variant in ['no_slab_band', 'with_slab_band']:
+            svg_path = f"{base}/files/Step11_{variant}.svg"
+            if os.path.exists(svg_path):
+                print(f"\n{'=' * 60}")
+                print(f"Processing Step11_{variant}.svg")
+                print(f"{'=' * 60}")
+                result = process_svg(svg_path, svg_path)
+                if not result:
+                    success = False
+            else:
+                print(f"⚠️  {svg_path} not found, skipping")
+
+        print(f"\n✓ find_paths_in_containers completed")
+        return success
+
+    except Exception as e:
+        print(f"✗ Error in find_paths_in_containers: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+def main():
+    """Standalone mode: process final_marked.svg -> test.svg"""
+    process_svg(SVG_FILE, OUTPUT_FILE)
 
 
 if __name__ == '__main__':

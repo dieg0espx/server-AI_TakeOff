@@ -290,15 +290,15 @@ def run_detection_steps_for_branch(branch_name: str, source_svg: str, output_pre
         print(f"❌ Failed to copy source SVG: {e}")
         return False, {}
 
-    # Detection steps (Step4 through Step10)
+    # Detection steps (Step5 through Step11)
     detection_steps = [
-        "Step4",  # Apply color coding to specific patterns
-        "Step5",  # Detect blue X shapes
-        "Step6",  # Detect red squares
-        "Step7",  # Detect pink shapes
-        "Step8",  # Detect green rectangles
-        "Step9",  # Detect orange rectangles
-        "Step10", # Draw all containers onto Step2.svg
+        "Step5",  # Apply color coding to specific patterns
+        "Step6",  # Detect blue X shapes
+        "Step7",  # Detect red squares
+        "Step8",  # Detect pink shapes
+        "Step9",  # Detect green rectangles
+        "Step10", # Detect orange rectangles
+        "Step11", # Draw all containers onto Step2.svg
     ]
 
     step_counts = {}
@@ -311,11 +311,11 @@ def run_detection_steps_for_branch(branch_name: str, source_svg: str, output_pre
 
     # Read counts from JSON files
     json_files = {
-        'files/tempData/x-shores.json': ('step5_blue_X_shapes', 'total_x_shapes'),
-        'files/tempData/square-shores.json': ('step6_red_squares', 'total_red_squares'),
-        'files/tempData/pinkFrames.json': ('step7_pink_shapes', 'total_pink_shapes'),
-        'files/tempData/greenFrames.json': ('step8_green_rectangles', 'total_rectangles'),
-        'files/tempData/orangeFrames.json': ('step9_orange_rectangles', 'total_rectangles'),
+        'files/tempData/x-shores.json': ('step6_blue_X_shapes', 'total_x_shapes'),
+        'files/tempData/square-shores.json': ('step7_red_squares', 'total_red_squares'),
+        'files/tempData/pinkFrames.json': ('step8_pink_shapes', 'total_pink_shapes'),
+        'files/tempData/greenFrames.json': ('step9_green_rectangles', 'total_rectangles'),
+        'files/tempData/orangeFrames.json': ('step10_orange_rectangles', 'total_rectangles'),
         'files/tempData/yellowFrames.json': ('step11_yellow_shapes', 'total_shapes'),
         'files/tempData/alumBeams16.json': ('alumBeams16', 'alumBeams16'),
         'files/tempData/alumBeam12.json': ('alumBeam12', 'alumBeam12'),
@@ -387,19 +387,19 @@ def save_branch_results(branch_name: str, step_counts: dict, data: dict):
     # Note: We don't store individual branch results here anymore
     # The main pipeline stores step_results (no slab) and slab_band (with slab) directly
 
-    # Copy Step10.svg to branch-specific file
-    step10_source = "files/Step10.svg"
-    step10_dest = f"files/Step10_{branch_name}.svg"
+    # Copy Step11.svg to branch-specific file
+    step11_source = "files/Step11.svg"
+    step11_dest = f"files/Step10_{branch_name}.svg"
 
-    if os.path.exists(step10_source):
+    if os.path.exists(step11_source):
         try:
-            shutil.copy(step10_source, step10_dest)
-            print(f"✅ Saved {step10_dest}")
+            shutil.copy(step11_source, step11_dest)
+            print(f"✅ Saved {step11_dest}")
         except Exception as e:
-            print(f"⚠️  Could not save {step10_dest}: {e}")
+            print(f"⚠️  Could not save {step11_dest}: {e}")
 
-    # Copy Step10-results.png to branch-specific file
-    png_source = "files/Step10-results.png"
+    # Copy Step11-results.png to branch-specific file
+    png_source = "files/Step11-results.png"
     png_dest = f"files/Step10_{branch_name}-results.png"
 
     if os.path.exists(png_source):
@@ -418,7 +418,7 @@ def run_pipeline_with_logging(upload_id: str):
 
     This pipeline runs TWO branches after Step 3:
     1. NO SLAB BAND: Uses Step3.svg directly
-    2. WITH SLAB BAND: Uses Step3_with_slab_band.svg (black elements on top)
+    2. WITH SLAB BAND: Uses Step4.svg (black elements on top)
 
     Both branches run Steps 4-10 and produce separate results.
     """
@@ -475,9 +475,9 @@ def run_pipeline_with_logging(upload_id: str):
     print("📋 PHASE 2: Creating slab band version")
     print(f"{'='*60}")
 
-    success = run_single_step("Step3_with_slab_band")
+    success = run_single_step("Step4")
     if not success:
-        print("⚠️  Step3_with_slab_band failed, continuing with no slab band only")
+        print("⚠️  Step4 failed, continuing with no slab band only")
         # Continue with just the no slab band version
 
     # Phase 3: Run detection for NO SLAB BAND branch
@@ -510,7 +510,7 @@ def run_pipeline_with_logging(upload_id: str):
         return False, "detection_no_slab_band", "Detection pipeline failed"
 
     # Phase 4: Run detection for WITH SLAB BAND branch (if available)
-    step3_slab = "files/Step3_with_slab_band.svg"
+    step3_slab = "files/Step4.svg"
 
     if os.path.exists(step3_slab):
         print(f"\n{'='*60}")
@@ -575,8 +575,8 @@ def run_pipeline_with_logging(upload_id: str):
         print("📝 Marking slab band differences in SVG")
         print(f"{'='*60}")
         try:
-            from processors.mark_slab_band_differences import mark_differences
-            mark_differences()
+            from processors.Step12 import run_step12 as run_step12_slab
+            run_step12_slab()
         except Exception as e:
             print(f"⚠️  Could not mark slab band differences: {e}")
     else:
@@ -607,6 +607,19 @@ def run_pipeline_with_logging(upload_id: str):
 
     print(f"\n🎉 Pipeline completed successfully!")
 
+    # Step13: Process container glyphs (recolor digits, move labels)
+    try:
+        print(f"\n{'='*60}")
+        print("📋 Running Step13 (container glyph processing)")
+        print(f"{'='*60}")
+        from processors.Step13 import run_step13 as run_step13_glyphs
+        if run_step13_glyphs():
+            print("✅ Step13 completed")
+        else:
+            print("⚠️  Step13 failed, continuing...")
+    except Exception as e:
+        print(f"⚠️  Error in Step13: {e}")
+
     # Upload BOTH Step10 SVGs to TTF SVG API
     try:
         print(f"\n📤 Uploading SVGs to TTF API...")
@@ -620,7 +633,7 @@ def run_pipeline_with_logging(upload_id: str):
         if os.path.exists(svg_no_slab):
             svg_url = upload_svg_to_api(svg_no_slab)
             if svg_url:
-                data['svg_urls']['step10_no_slab_band'] = svg_url
+                data['svg_urls']['step11_no_slab_band'] = svg_url
                 data['svg_urls']['step10'] = svg_url  # Backwards compatibility
                 print(f"✅ Step10_no_slab_band.svg uploaded: {svg_url}")
             else:
@@ -633,7 +646,7 @@ def run_pipeline_with_logging(upload_id: str):
         if os.path.exists(svg_with_slab):
             svg_url = upload_svg_to_api(svg_with_slab)
             if svg_url:
-                data['svg_urls']['step10_with_slab_band'] = svg_url
+                data['svg_urls']['step11_with_slab_band'] = svg_url
                 print(f"✅ Step10_with_slab_band.svg uploaded: {svg_url}")
             else:
                 print("⚠️  Failed to upload Step10_with_slab_band.svg")
@@ -647,18 +660,49 @@ def run_pipeline_with_logging(upload_id: str):
     except Exception as e:
         print(f"⚠️  Error uploading SVGs to TTF API: {str(e)}")
 
-    # Now run Step11 (Step12 will run later after logs are saved)
+    # Now run Step14 (Step15 will run later after logs are saved)
     print(f"\n{'='*60}")
-    print("📋 PHASE 4: Running Step11 (text extraction)")
+    print("📋 PHASE 4: Running Step14 (text extraction)")
     print(f"{'='*60}")
 
-    success = run_single_step("Step11")
+    success = run_single_step("Step14")
     if success:
         successful_steps += 1
     else:
-        print(f"⚠️  Step11 failed, but pipeline will continue")
+        print(f"⚠️  Step14 failed, but pipeline will continue")
 
-    # SVG URL updates will happen after Step12 in process_ai_takeoff_sync
+    # ── Cleanup intermediate files ──
+    try:
+        print(f"\n{'='*60}")
+        print("🧹 Cleaning up intermediate files")
+        print(f"{'='*60}")
+
+        files_dir = "files"
+        keep_files = {
+            "original.pdf",
+            "Step11_no_slab_band.svg",
+            "Step11_with_slab_band.svg",
+        }
+
+        removed_count = 0
+        for f in os.listdir(files_dir):
+            filepath = os.path.join(files_dir, f)
+            if f in keep_files:
+                continue
+            if f == "tempData":
+                shutil.rmtree(filepath)
+                print(f"  Removed {filepath}/")
+                removed_count += 1
+            elif os.path.isfile(filepath):
+                os.remove(filepath)
+                removed_count += 1
+
+        print(f"  Removed {removed_count} intermediate files/directories")
+        print(f"  Kept: {', '.join(keep_files)}")
+    except Exception as e:
+        print(f"⚠️  Cleanup error: {e}")
+
+    # SVG URL updates will happen after Step15 in process_ai_takeoff_sync
     return True, None, None
 
 # Initialize the PDF to SVG converter
@@ -926,20 +970,20 @@ async def process_ai_takeoff_sync(upload_id: str, company: str = None, jobsite: 
                         except Exception as log_error:
                             print(f"⚠️  Could not save logs to data.json: {log_error}")
 
-                    # Now run Step12 to send data (including logs) to database
+                    # Now run Step15 to send data (including logs) to database
                     if pipeline_success:
                         print(f"\n{'='*60}")
-                        print("📋 PHASE 5: Sending results to database (Step12)")
+                        print("📋 PHASE 5: Sending results to database (Step15)")
                         print(f"{'='*60}")
                         try:
-                            from processors.Step12 import run_step12
-                            step12_success = run_step12()
-                            if step12_success:
-                                print("✅ Step12 completed - Results sent to database")
+                            from processors.Step15 import run_step15
+                            step15_success = run_step15()
+                            if step15_success:
+                                print("✅ Step15 completed - Results sent to database")
 
-                                # After Step12 creates the database record, update it with SVG URLs
+                                # After Step15 creates the database record, update it with SVG URLs
                                 try:
-                                    # Re-read data.json to get the tracking_url created by Step12
+                                    # Re-read data.json to get the tracking_url created by Step15
                                     with open('data.json', 'r') as f:
                                         data_updated = json.load(f)
 
@@ -950,7 +994,7 @@ async def process_ai_takeoff_sync(upload_id: str, company: str = None, jobsite: 
                                         from api.cloudinary_manager import update_svg_in_database
 
                                         # Update with no slab band SVG (primary)
-                                        svg_url_no_slab = data_updated.get('svg_urls', {}).get('step10_no_slab_band')
+                                        svg_url_no_slab = data_updated.get('svg_urls', {}).get('step11_no_slab_band')
                                         if svg_url_no_slab:
                                             if update_svg_in_database(tracking_url, svg_url_no_slab):
                                                 print(f"✅ No slab band SVG URL saved to database")
@@ -958,7 +1002,7 @@ async def process_ai_takeoff_sync(upload_id: str, company: str = None, jobsite: 
                                                 print(f"⚠️  Failed to update no slab band SVG URL in database")
 
                                         # Also update with slab band SVG if available
-                                        svg_url_with_slab = data_updated.get('svg_urls', {}).get('step10_with_slab_band')
+                                        svg_url_with_slab = data_updated.get('svg_urls', {}).get('step11_with_slab_band')
                                         if svg_url_with_slab:
                                             print(f"✅ With slab band SVG URL: {svg_url_with_slab}")
                                     else:
@@ -966,9 +1010,9 @@ async def process_ai_takeoff_sync(upload_id: str, company: str = None, jobsite: 
                                 except Exception as svg_update_error:
                                     print(f"⚠️  Error updating SVG URL in database: {svg_update_error}")
                             else:
-                                print("⚠️  Step12 failed - Results not sent to database")
-                        except Exception as step12_error:
-                            print(f"⚠️  Step12 exception: {step12_error}")
+                                print("⚠️  Step15 failed - Results not sent to database")
+                        except Exception as step15_error:
+                            print(f"⚠️  Step15 exception: {step15_error}")
 
                     if pipeline_success:
                         await log_to_client(upload_id, f"✅ Processing pipeline completed successfully")
@@ -1046,7 +1090,7 @@ async def process_ai_takeoff_sync(upload_id: str, company: str = None, jobsite: 
 
                 # Get result URL from tracking_url
                 if 'tracking_url' in data_results:
-                    # Use tracking URL from Step11
+                    # Use tracking URL from Step14
                     tracking_url = data_results['tracking_url']
                     api_url = os.environ.get('API_URL', 'https://ttfconstruction.com/ai-takeoff-results/create.php')
                     api_base = api_url.replace('/create.php', '')
