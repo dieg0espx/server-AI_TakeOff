@@ -660,13 +660,13 @@ def run_step8():
         current_dir = os.getcwd()
 
         if current_dir.endswith('processors'):
-            input_svg = "../files/Step4.svg"
-            output_svg = "../files/Step7.svg"
-            output_results = "../files/Step7-results.png"
+            input_svg = "../files/Step5.svg"
+            output_svg = "../files/Step8.svg"
+            output_results = "../files/Step8-results.png"
         else:
-            input_svg = "files/Step4.svg"
-            output_svg = "files/Step7.svg"
-            output_results = "files/Step7-results.png"
+            input_svg = "files/Step5.svg"
+            output_svg = "files/Step8.svg"
+            output_results = "files/Step8-results.png"
 
         # Process SVG colors and convert paths to rectangles
         process_svg_colors(input_svg, output_svg)
@@ -716,13 +716,13 @@ if __name__ == "__main__":
         current_dir = os.getcwd()
 
         if current_dir.endswith('processors'):
-            input_svg = "../files/Step4.svg"
-            output_svg = "../files/Step7.svg"
-            output_results = "../files/Step7-results.png"
+            input_svg = "../files/Step5.svg"
+            output_svg = "../files/Step8.svg"
+            output_results = "../files/Step8-results.png"
         else:
-            input_svg = "files/Step4.svg"
-            output_svg = "files/Step7.svg"
-            output_results = "files/Step7-results.png"
+            input_svg = "files/Step5.svg"
+            output_svg = "files/Step8.svg"
+            output_results = "files/Step8-results.png"
 
         # Process SVG colors and convert paths to rectangles
         process_svg_colors(input_svg, output_svg)

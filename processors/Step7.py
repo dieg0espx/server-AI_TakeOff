@@ -403,18 +403,18 @@ def process_svg_colors():
     
     # If we're in the processors directory, use relative paths
     if current_dir.endswith('processors'):
-        input_svg = "../files/Step4.svg"
-        output_svg = "../files/Step6.svg"
-        output_results = "../files/Step6-results.png"
+        input_svg = "../files/Step5.svg"
+        output_svg = "../files/Step7.svg"
+        output_results = "../files/Step7-results.png"
     else:
         # If we're in the server directory (when called from pipeline), use direct paths
-        input_svg = "files/Step4.svg"
-        output_svg = "files/Step6.svg"
-        output_results = "files/Step6-results.png"
+        input_svg = "files/Step5.svg"
+        output_svg = "files/Step7.svg"
+        output_results = "files/Step7-results.png"
     
-    # PHASE 1: Color processing from Step4.svg to Step6.svg
+    # PHASE 1: Color processing from Step5.svg to Step7.svg
     
-    print("PHASE 1: Processing colors from Step4.svg to Step6.svg")
+    print("PHASE 1: Processing colors from Step5.svg to Step7.svg")
     
     # Read the SVG file
     with open(input_svg, 'r', encoding='utf-8') as file:
@@ -436,16 +436,16 @@ def process_svg_colors():
     # Replace colors using the function
     processed_content = re.sub(hex_pattern, replace_color, content)
     
-    # Write the processed content to Step6.svg
+    # Write the processed content to Step7.svg
     with open(output_svg, 'w', encoding='utf-8') as file:
         file.write(processed_content)
     
-    print("Phase 1 completed: Colors processed and saved to Step6.svg")
+    print("Phase 1 completed: Colors processed and saved to Step7.svg")
     
-    # PHASE 2: Shores processing on Step6.svg
-    print("\nPHASE 2: Processing shores on Step6.svg")
+    # PHASE 2: Shores processing on Step7.svg
+    print("\nPHASE 2: Processing shores on Step7.svg")
     
-    # Read the Step6.svg file for shores processing
+    # Read the Step7.svg file for shores processing
     with open(output_svg, 'r', encoding='utf-8') as file:
         content = file.read()
     
@@ -492,7 +492,7 @@ def process_svg_colors():
     # Change all #fb0505 (red) to red (for background)
     modified_content = modified_content.replace('#fb0505', '#ff0000')
     
-    # Write the final processed content back to Step6.svg
+    # Write the final processed content back to Step7.svg
     with open(output_svg, 'w', encoding='utf-8') as file:
         file.write(modified_content)
     
@@ -506,9 +506,9 @@ def process_svg_colors():
     print(f"Final output saved to: {output_svg}")
     
     # PHASE 3: Fill squares before conversion
-    print("\nPHASE 3: Filling squares in Step6.svg")
+    print("\nPHASE 3: Filling squares in Step7.svg")
     
-    # Read the Step6.svg file for square filling
+    # Read the Step7.svg file for square filling
     with open(output_svg, 'r', encoding='utf-8') as file:
         content = file.read()
     
@@ -525,7 +525,7 @@ def process_svg_colors():
     # Apply the replacement to fill only red squares
     filled_content = re.sub(fill_pattern, fill_red_squares, content)
     
-    # Write the filled content back to Step6.svg
+    # Write the filled content back to Step7.svg
     with open(output_svg, 'w', encoding='utf-8') as file:
         file.write(filled_content)
     
@@ -533,7 +533,7 @@ def process_svg_colors():
     print(f"Filled SVG saved to: {output_svg}")
     
     # PHASE 4: Contour-based object detection
-    print("\nPHASE 4: Contour-based object detection on Step6.svg")
+    print("\nPHASE 4: Contour-based object detection on Step7.svg")
     
     # Define JSON output path
     json_output = "files/tempData/square-shores.json"
@@ -560,14 +560,14 @@ def run_step7():
         
         # If we're in the processors directory, use relative paths
         if current_dir.endswith('processors'):
-            input_svg = "../files/Step4.svg"
-            output_svg = "../files/Step6.svg"
-            output_results = "../files/Step6-results.png"
+            input_svg = "../files/Step5.svg"
+            output_svg = "../files/Step7.svg"
+            output_results = "../files/Step7-results.png"
         else:
             # If we're in the server directory (when called from pipeline), use direct paths
-            input_svg = "files/Step4.svg"
-            output_svg = "files/Step6.svg"
-            output_results = "files/Step6-results.png"
+            input_svg = "files/Step5.svg"
+            output_svg = "files/Step7.svg"
+            output_results = "files/Step7-results.png"
         
         # Run full SVG processing pipeline
         process_svg_colors()
@@ -581,10 +581,10 @@ def run_step7():
 
 def main():
     parser = argparse.ArgumentParser(description='Contour-based Red Square Detection (#fb0505)')
-    parser.add_argument('--source', type=str, default='Step6.svg',
-                       help='Path to SVG image (default: Step6.svg)')
-    parser.add_argument('--output', type=str, default='Step6-results.png',
-                       help='Output image path (default: Step6-results.png)')
+    parser.add_argument('--source', type=str, default='Step7.svg',
+                       help='Path to SVG image (default: Step7.svg)')
+    parser.add_argument('--output', type=str, default='Step7-results.png',
+                       help='Output image path (default: Step7-results.png)')
     parser.add_argument('--process-only', action='store_true',
                        help='Only run contour detection, skip SVG processing')
     

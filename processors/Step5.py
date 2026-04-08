@@ -358,11 +358,11 @@ def run_step5():
         # If we're in the processors directory, use relative paths
         if current_dir.endswith('processors'):
             input_svg = "../files/Step3.svg"
-            output_svg = "../files/Step4.svg"
+            output_svg = "../files/Step5.svg"
         else:
             # If we're in the server directory (when called from pipeline), use direct paths
             input_svg = "files/Step3.svg"
-            output_svg = "files/Step4.svg"
+            output_svg = "files/Step5.svg"
         
         # Check if input file exists
         if not os.path.exists(input_svg):

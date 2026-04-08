@@ -351,12 +351,12 @@ def process_svg_colors():
     
     # If we're in the processors directory, use relative paths
     if current_dir.endswith('processors'):
-        input_svg = "../files/Step4.svg"
-        output_svg = "../files/Step9.svg"
+        input_svg = "../files/Step5.svg"
+        output_svg = "../files/Step10.svg"
     else:
         # If we're in the server directory (when called from pipeline), use direct paths
-        input_svg = "files/Step4.svg"
-        output_svg = "files/Step9.svg"
+        input_svg = "files/Step5.svg"
+        output_svg = "files/Step10.svg"
     
     # Read the SVG file
     with open(input_svg, 'r', encoding='utf-8') as file:
@@ -473,14 +473,14 @@ def run_step10():
         
         # If we're in the processors directory, use relative paths
         if current_dir.endswith('processors'):
-            input_svg = "../files/Step4.svg"
-            output_svg = "../files/Step9.svg"
-            output_results = "../files/Step9-results.png"
+            input_svg = "../files/Step5.svg"
+            output_svg = "../files/Step10.svg"
+            output_results = "../files/Step10-results.png"
         else:
             # If we're in the server directory (when called from pipeline), use direct paths
-            input_svg = "files/Step4.svg"
-            output_svg = "files/Step9.svg"
-            output_results = "files/Step9-results.png"
+            input_svg = "files/Step5.svg"
+            output_svg = "files/Step10.svg"
+            output_results = "files/Step10-results.png"
         
         # First process SVG colors and convert paths to rectangles
         process_svg_colors()
@@ -532,14 +532,14 @@ if __name__ == "__main__":
         
         # If we're in the processors directory, use relative paths
         if current_dir.endswith('processors'):
-            input_svg = "../files/Step9.svg"
-            output_svg = "../files/Step9.svg"
-            output_results = "../files/Step9-results.png"
+            input_svg = "../files/Step10.svg"
+            output_svg = "../files/Step10.svg"
+            output_results = "../files/Step10-results.png"
         else:
             # If we're in the server directory (when called from pipeline), use direct paths
-            input_svg = "files/Step9.svg"
-            output_svg = "files/Step9.svg"
-            output_results = "files/Step9-results.png"
+            input_svg = "files/Step10.svg"
+            output_svg = "files/Step10.svg"
+            output_results = "files/Step10-results.png"
         
         # First process SVG colors and convert paths to rectangles
         process_svg_colors()

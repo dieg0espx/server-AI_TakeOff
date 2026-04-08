@@ -287,15 +287,15 @@ def run_step6():
         
         # If we're in the processors directory, use relative paths
         if current_dir.endswith('processors'):
-            input_svg = "../files/Step4.svg"
-            output_svg = "../files/Step5.svg"
-            output_results = "../files/Step5-results.svg"
+            input_svg = "../files/Step5.svg"
+            output_svg = "../files/Step6.svg"
+            output_results = "../files/Step6-results.svg"
             json_output = "../files/tempData/x-shores.json"
         else:
             # If we're in the server directory (when called from pipeline), use direct paths
-            input_svg = "files/Step4.svg"
-            output_svg = "files/Step5.svg"
-            output_results = "files/Step5-results.svg"
+            input_svg = "files/Step5.svg"
+            output_svg = "files/Step6.svg"
+            output_results = "files/Step6-results.svg"
             json_output = "files/tempData/x-shores.json"
         
         # First process SVG colors
@@ -342,15 +342,15 @@ if __name__ == "__main__":
         
         # If we're in the processors directory, use relative paths
         if current_dir.endswith('processors'):
-            input_svg = "../files/Step4.svg"
-            output_svg = "../files/Step5.svg"
-            output_results = "../files/Step5-results.svg"
+            input_svg = "../files/Step5.svg"
+            output_svg = "../files/Step6.svg"
+            output_results = "../files/Step6-results.svg"
             json_output = "../files/tempData/x-shores.json"
         else:
             # If we're in the server directory (when called from pipeline), use direct paths
-            input_svg = "files/Step4.svg"
-            output_svg = "files/Step5.svg"
-            output_results = "files/Step5-results.svg"
+            input_svg = "files/Step5.svg"
+            output_svg = "files/Step6.svg"
+            output_results = "files/Step6-results.svg"
             json_output = "files/tempData/x-shores.json"
         
         # First process SVG colors
