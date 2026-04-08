@@ -494,7 +494,20 @@ def process_container_group(prefix, containers, paths, svg_content):
     svg_content, moved_count = move_labels_to_bottom_right(svg_content, containers, prefix)
     print(f"  Moved {moved_count} labels")
 
-    return svg_content, changed_count, moved_count
+    # ── Collect glyph counts per container ──
+    container_summary = {}
+    for num in sorted(analyzed.keys()):
+        glyphs = analyzed[num]['glyphs']
+        count_4 = sum(1 for g in glyphs if g['digit'] == '4')
+        count_5 = sum(1 for g in glyphs if g['digit'] == '5')
+        count_6 = sum(1 for g in glyphs if g['digit'] == '6')
+        container_summary[containers[num]['id']] = {
+            "num4": count_4,
+            "num5": count_5,
+            "num6": count_6,
+        }
+
+    return svg_content, changed_count, moved_count, container_summary
 
 
 def collect_all_contained_path_ids(all_containers, paths):
@@ -570,6 +583,7 @@ def process_svg(input_file, output_file):
 
     total_changed = 0
     total_moved = 0
+    all_summary = {}
 
     # ── Collect all containers ──
     all_containers = {}
@@ -583,11 +597,12 @@ def process_svg(input_file, output_file):
         print(f"Processing {prefix} ({len(containers)} containers)")
         print(f"{'=' * 60}\n")
 
-        svg_content, changed, moved = process_container_group(
+        svg_content, changed, moved, summary = process_container_group(
             prefix, containers, paths, svg_content
         )
         total_changed += changed
         total_moved += moved
+        all_summary.update(summary)
 
     # ── Save output ──
     with open(output_file, 'w', encoding='utf-8') as f:
@@ -597,7 +612,7 @@ def process_svg(input_file, output_file):
     print(f"Total labels moved: {total_moved}")
     print(f"Output saved to: {output_file}")
 
-    return True
+    return True, all_summary
 
 
 def run_step13():
@@ -606,6 +621,8 @@ def run_step13():
     Called from main.py after Step11, before SVG upload.
     """
     try:
+        import json
+
         current_dir = os.getcwd()
 
         if current_dir.endswith('processors'):
@@ -614,6 +631,7 @@ def run_step13():
             base = "."
 
         success = True
+        all_summary = {}
 
         # Process each Step11 SVG variant (overwrite in-place)
         for variant in ['no_slab_band', 'with_slab_band']:
@@ -622,17 +640,46 @@ def run_step13():
                 print(f"\n{'=' * 60}")
                 print(f"Processing Step11_{variant}.svg")
                 print(f"{'=' * 60}")
-                result = process_svg(svg_path, svg_path)
+                result, summary = process_svg(svg_path, svg_path)
                 if not result:
                     success = False
+                else:
+                    all_summary = summary  # Use the latest (both should be same)
             else:
                 print(f"⚠️  {svg_path} not found, skipping")
 
-        print(f"\n✓ find_paths_in_containers completed")
+        # Save glyph totals per container type to data.json
+        if all_summary:
+            data_path = f"{base}/data.json"
+            data = {}
+            if os.path.exists(data_path):
+                try:
+                    with open(data_path, 'r') as f:
+                        data = json.load(f)
+                except (json.JSONDecodeError, Exception):
+                    data = {}
+
+            # Aggregate by container type
+            totals = {}
+            for container_id, counts in all_summary.items():
+                ctype = container_id.rsplit('_', 1)[0]  # e.g. "pink_container"
+                if ctype not in totals:
+                    totals[ctype] = {"count": 0, "num4": 0, "num5": 0, "num6": 0}
+                totals[ctype]["count"] += 1
+                totals[ctype]["num4"] += counts["num4"]
+                totals[ctype]["num5"] += counts["num5"]
+                totals[ctype]["num6"] += counts["num6"]
+
+            data['container_glyphs'] = totals
+            with open(data_path, 'w') as f:
+                json.dump(data, f, indent=4)
+            print(f"\n✅ Saved glyph totals to data.json")
+
+        print(f"\n✓ Step13 completed")
         return success
 
     except Exception as e:
-        print(f"✗ Error in find_paths_in_containers: {e}")
+        print(f"✗ Error in Step13: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -640,7 +687,11 @@ def run_step13():
 
 def main():
     """Standalone mode: process final_marked.svg -> test.svg"""
-    process_svg(SVG_FILE, OUTPUT_FILE)
+    result, summary = process_svg(SVG_FILE, OUTPUT_FILE)
+    if summary:
+        import json
+        print(f"\nGlyph summary ({len(summary)} containers):")
+        print(json.dumps(summary, indent=2))
 
 
 if __name__ == '__main__':

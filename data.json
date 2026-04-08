@@ -8729,5 +8729,25 @@
         "step8_green_rectangles": 10,
         "step9_orange_rectangles": 0,
         "step11_yellow_shapes": 0
+    },
+    "container_glyphs": {
+        "pink_container": {
+            "count": 22,
+            "num4": 22,
+            "num5": 24,
+            "num6": 18
+        },
+        "green_container": {
+            "count": 79,
+            "num4": 20,
+            "num5": 45,
+            "num6": 41
+        },
+        "orange_container": {
+            "count": 4,
+            "num4": 0,
+            "num5": 2,
+            "num6": 1
+        }
     }
 }
