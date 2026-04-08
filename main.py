@@ -311,11 +311,11 @@ def run_detection_steps_for_branch(branch_name: str, source_svg: str, output_pre
 
     # Read counts from JSON files
     json_files = {
-        'files/tempData/x-shores.json': ('step6_blue_X_shapes', 'total_x_shapes'),
-        'files/tempData/square-shores.json': ('step7_red_squares', 'total_red_squares'),
-        'files/tempData/pinkFrames.json': ('step8_pink_shapes', 'total_pink_shapes'),
-        'files/tempData/greenFrames.json': ('step9_green_rectangles', 'total_rectangles'),
-        'files/tempData/orangeFrames.json': ('step10_orange_rectangles', 'total_rectangles'),
+        'files/tempData/x-shores.json': ('step5_blue_X_shapes', 'total_x_shapes'),
+        'files/tempData/square-shores.json': ('step6_red_squares', 'total_red_squares'),
+        'files/tempData/pinkFrames.json': ('step7_pink_shapes', 'total_pink_shapes'),
+        'files/tempData/greenFrames.json': ('step8_green_rectangles', 'total_rectangles'),
+        'files/tempData/orangeFrames.json': ('step9_orange_rectangles', 'total_rectangles'),
         'files/tempData/yellowFrames.json': ('step11_yellow_shapes', 'total_shapes'),
         'files/tempData/alumBeams16.json': ('alumBeams16', 'alumBeams16'),
         'files/tempData/alumBeam12.json': ('alumBeam12', 'alumBeam12'),
@@ -389,7 +389,7 @@ def save_branch_results(branch_name: str, step_counts: dict, data: dict):
 
     # Copy Step11.svg to branch-specific file
     step11_source = "files/Step11.svg"
-    step11_dest = f"files/Step10_{branch_name}.svg"
+    step11_dest = f"files/Step11_{branch_name}.svg"
 
     if os.path.exists(step11_source):
         try:
@@ -400,7 +400,7 @@ def save_branch_results(branch_name: str, step_counts: dict, data: dict):
 
     # Copy Step11-results.png to branch-specific file
     png_source = "files/Step11-results.png"
-    png_dest = f"files/Step10_{branch_name}-results.png"
+    png_dest = f"files/Step11_{branch_name}-results.png"
 
     if os.path.exists(png_source):
         try:
@@ -629,27 +629,27 @@ def run_pipeline_with_logging(upload_id: str):
             data['svg_urls'] = {}
 
         # Upload no slab band version
-        svg_no_slab = "files/Step10_no_slab_band.svg"
+        svg_no_slab = "files/Step11_no_slab_band.svg"
         if os.path.exists(svg_no_slab):
             svg_url = upload_svg_to_api(svg_no_slab)
             if svg_url:
-                data['svg_urls']['step11_no_slab_band'] = svg_url
+                data['svg_urls']['step10_no_slab_band'] = svg_url
                 data['svg_urls']['step10'] = svg_url  # Backwards compatibility
-                print(f"✅ Step10_no_slab_band.svg uploaded: {svg_url}")
+                print(f"✅ Step11_no_slab_band.svg uploaded: {svg_url}")
             else:
-                print("⚠️  Failed to upload Step10_no_slab_band.svg")
+                print("⚠️  Failed to upload Step11_no_slab_band.svg")
         else:
             print(f"⚠️  {svg_no_slab} not found")
 
         # Upload with slab band version
-        svg_with_slab = "files/Step10_with_slab_band.svg"
+        svg_with_slab = "files/Step11_with_slab_band.svg"
         if os.path.exists(svg_with_slab):
             svg_url = upload_svg_to_api(svg_with_slab)
             if svg_url:
-                data['svg_urls']['step11_with_slab_band'] = svg_url
-                print(f"✅ Step10_with_slab_band.svg uploaded: {svg_url}")
+                data['svg_urls']['step10_with_slab_band'] = svg_url
+                print(f"✅ Step11_with_slab_band.svg uploaded: {svg_url}")
             else:
-                print("⚠️  Failed to upload Step10_with_slab_band.svg")
+                print("⚠️  Failed to upload Step11_with_slab_band.svg")
         else:
             print(f"⚠️  {svg_with_slab} not found")
 
@@ -994,7 +994,7 @@ async def process_ai_takeoff_sync(upload_id: str, company: str = None, jobsite: 
                                         from api.cloudinary_manager import update_svg_in_database
 
                                         # Update with no slab band SVG (primary)
-                                        svg_url_no_slab = data_updated.get('svg_urls', {}).get('step11_no_slab_band')
+                                        svg_url_no_slab = data_updated.get('svg_urls', {}).get('step10_no_slab_band')
                                         if svg_url_no_slab:
                                             if update_svg_in_database(tracking_url, svg_url_no_slab):
                                                 print(f"✅ No slab band SVG URL saved to database")
@@ -1002,7 +1002,7 @@ async def process_ai_takeoff_sync(upload_id: str, company: str = None, jobsite: 
                                                 print(f"⚠️  Failed to update no slab band SVG URL in database")
 
                                         # Also update with slab band SVG if available
-                                        svg_url_with_slab = data_updated.get('svg_urls', {}).get('step11_with_slab_band')
+                                        svg_url_with_slab = data_updated.get('svg_urls', {}).get('step10_with_slab_band')
                                         if svg_url_with_slab:
                                             print(f"✅ With slab band SVG URL: {svg_url_with_slab}")
                                     else:
