@@ -461,16 +461,19 @@ def run_step11():
 
     # Beam categories and styling rules
     beam_specs = [
-        ("alumBeams16", 1201, 1, "#ffffff"),
+        ("alumBeam18", 1350, 1, "#FFD400"),
+        ("alumBeam16", 1201, 1, "#ffffff"),
+        ("alumBeam14", 1050, 1, "#1D915C"),
+        ("alumBeam13", 975, 1, "#9CFF9C"),
         ("alumBeam12", 900, 1, "#F54927"),
-        ("alumBeam106", 787, 1, "#FFA805"),
+        ("alumBeam11", 825, 1, "#FF6EC7"),
+        ("alumBeam10_6", 787, 1, "#FFA805"),
         ("alumBeam10", 750, 1, "#00C8FF"),
         ("alumBeam9", 675, 1, "#B52FC4"),
-        ("alumBeam14", 1050, 0, "#1D915C"),
-        ("alumBeam13", 975, 0, "#9CFF9C"),
-        ("alumBeam7", 525, 0, "#FFBC85"),
-        ("alumBeam5", 376, 0, "#4084FF"),
-        ("alumBeam18", 1350, 0, "#FFD400"),
+        ("alumBeam8", 600, 1, "#00FFFF"),
+        ("alumBeam7", 525, 1, "#FFBC85"),
+        ("alumBeam6", 451, 1, "#E6E600"),
+        ("alumBeam5", 376, 1, "#4084FF"),
     ]
 
     beam_counts = {}

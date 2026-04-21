@@ -620,6 +620,19 @@ def run_pipeline_with_logging(upload_id: str):
     except Exception as e:
         print(f"⚠️  Error in Step13: {e}")
 
+    # Step13b: Print glyph nums to server console
+    try:
+        print(f"\n{'='*60}")
+        print("📊 Running Step13b (print glyph counts)")
+        print(f"{'='*60}")
+        from processors.Step13b import run_step13b
+        if run_step13b():
+            print("✅ Step13b completed")
+        else:
+            print("⚠️  Step13b failed, continuing...")
+    except Exception as e:
+        print(f"⚠️  Error in Step13b: {e}")
+
     # Upload BOTH Step10 SVGs to TTF SVG API
     try:
         print(f"\n📤 Uploading SVGs to TTF API...")

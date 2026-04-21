@@ -498,13 +498,42 @@ def process_container_group(prefix, containers, paths, svg_content):
     container_summary = {}
     for num in sorted(analyzed.keys()):
         glyphs = analyzed[num]['glyphs']
-        count_4 = sum(1 for g in glyphs if g['digit'] == '4')
-        count_5 = sum(1 for g in glyphs if g['digit'] == '5')
-        count_6 = sum(1 for g in glyphs if g['digit'] == '6')
+        def ids_for(digit):
+            return [g['id'] for g in glyphs if g['digit'] == digit]
+
+        n4 = ids_for('4')
+        n5 = ids_for('5')
+        n6 = ids_for('6')
+
+        # Detect crossbar: num4 paired with numX (path IDs differ by 2)
+        crossbar = None
+        paired_num = None
+        if n4:
+            id4 = int(n4[0].replace('path', ''))
+            if n5:
+                if abs(id4 - int(n5[0].replace('path', ''))) == 2:
+                    crossbar = 5
+                    paired_num = 'num5'
+            if crossbar is None and n6:
+                if abs(id4 - int(n6[0].replace('path', ''))) == 2:
+                    crossbar = 6
+                    paired_num = 'num6'
+
+        # Frame: a lone num not paired with num4
+        frame = None
+        if n5 and paired_num != 'num5':
+            frame = 5
+        if n6 and paired_num != 'num6':
+            frame = 6
+        if not n4:
+            if n5:
+                frame = 5
+            elif n6:
+                frame = 6
+
         container_summary[containers[num]['id']] = {
-            "num4": count_4,
-            "num5": count_5,
-            "num6": count_6,
+            "crossbar": crossbar if crossbar is not None else 7,
+            "frame": frame,
         }
 
     return svg_content, changed_count, moved_count, container_summary
@@ -659,18 +688,48 @@ def run_step13():
                 except (json.JSONDecodeError, Exception):
                     data = {}
 
-            # Aggregate by container type
+            # Store per-container detail (with path IDs)
+            data['container_glyphs_detail'] = all_summary
+
+            # Aggregate totals by container type (with crossbar/frame counts)
             totals = {}
-            for container_id, counts in all_summary.items():
-                ctype = container_id.rsplit('_', 1)[0]  # e.g. "pink_container"
+            for container_id, info in all_summary.items():
+                ctype = container_id.rsplit('_', 1)[0]
                 if ctype not in totals:
-                    totals[ctype] = {"count": 0, "num4": 0, "num5": 0, "num6": 0}
+                    totals[ctype] = {"count": 0, "crossbars": {}, "frames": {}}
                 totals[ctype]["count"] += 1
-                totals[ctype]["num4"] += counts["num4"]
-                totals[ctype]["num5"] += counts["num5"]
-                totals[ctype]["num6"] += counts["num6"]
+
+                cb = info.get('crossbar', 7)
+                cb_key = f"crossbar_{cb}"
+                totals[ctype]["crossbars"][cb_key] = totals[ctype]["crossbars"].get(cb_key, 0) + 1
+
+                fr = info.get('frame')
+                if fr is not None:
+                    fr_key = f"frame_{fr}"
+                    totals[ctype]["frames"][fr_key] = totals[ctype]["frames"].get(fr_key, 0) + 1
+                else:
+                    totals[ctype]["frames"]["frame_null"] = totals[ctype]["frames"].get("frame_null", 0) + 1
 
             data['container_glyphs'] = totals
+
+            # Aggregate overall crossbar and frame totals
+            crossbar_totals = {}
+            frame_totals = {}
+            frame_null_count = 0
+            for container_id, info in all_summary.items():
+                cb = info.get('crossbar', 7)
+                fr = info.get('frame')
+                crossbar_totals[cb] = crossbar_totals.get(cb, 0) + 1
+                if fr is not None:
+                    frame_totals[fr] = frame_totals.get(fr, 0) + 1
+                else:
+                    frame_null_count += 1
+
+            data['crossbar_totals'] = {f"crossbar_{k}": v for k, v in sorted(crossbar_totals.items())}
+            data['crossbar_totals']['total'] = sum(crossbar_totals.values())
+            data['frame_totals'] = {f"frame_{k}": v for k, v in sorted(frame_totals.items())}
+            data['frame_totals']['frame_null'] = frame_null_count
+            data['frame_totals']['total'] = sum(frame_totals.values()) + frame_null_count
             with open(data_path, 'w') as f:
                 json.dump(data, f, indent=4)
             print(f"\n✅ Saved glyph totals to data.json")
