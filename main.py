@@ -428,6 +428,9 @@ def run_pipeline_with_logging(upload_id: str):
     import json
     import shutil
 
+    # Ensure tempData directory exists
+    os.makedirs("files/tempData", exist_ok=True)
+
     # Phase 1: Run Steps 1-3 (common to both branches)
     initial_steps = [
         "Step1",  # Remove duplicate paths
