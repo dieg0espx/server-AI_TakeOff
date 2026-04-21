@@ -215,7 +215,7 @@ def detect_blue_x_shapes(image_path, output_path='results.png', json_output_path
         }
         x_shapes_data.append(x_shape_data)
         
-        print(f"X{i+1}: Size={w:.1f}x{h:.1f}, Contours={len(contours_group)}")
+        pass  # X shape detected
     
     # Save result image
     if output_path.lower().endswith('.svg'):

@@ -239,7 +239,7 @@ def apply_color_to_specific_paths(input_file, output_file, red="#fb0505", blue="
                     if path_id_num is not None:
                         diagonal_path_ids.add(path_id_num)
                         
-                        print(f"[DIAG] Found diagonal path: {path_id} (ID number: {path_id_num})")
+                        pass  # diagonal path found
             
             
             print(f"Found {len(diagonal_path_ids)} diagonal paths with numeric IDs")
@@ -285,15 +285,14 @@ def apply_color_to_specific_paths(input_file, output_file, red="#fb0505", blue="
                     d_str = d_match.group(1) if d_match else "unknown"
                     
                     
-                    print(f"[FOUND] Path {path_id} (ID: {path_id_num}) contains length {length} in d='{d_str}'")
-                    print(f"[ADJACENT] Distance {min_distance} from diagonal path ID {closest_diagonal}")
+                    pass  # found adjacent path
                     
                     # Color this path pink
                     pink_tag = color_path_pink(path_tag)
                     modifications.append((path_tag, pink_tag))
                     adjacent_count += 1
                     
-                    print(f"[NEIGH] id={path_id} → PINK (adjacent to diagonal ID {closest_diagonal}, distance: {min_distance})")
+                    pass  # colored pink
             
             print(f"Total adjacent paths with lengths 294-300: {adjacent_count}")
             print(f"Total modifications to apply: {len(modifications)}")

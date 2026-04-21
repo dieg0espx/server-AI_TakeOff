@@ -372,7 +372,7 @@ def detect_red_squares(image_path, output_path='results.png', json_output_path=N
         }
         red_squares_data.append(red_square_data)
         
-        print(f"Square{i+1}: Size={w:.1f}x{h:.1f}, Contours={len(contours_group)}")
+        pass  # square detected
     
     # Save result image
     cv2.imwrite(output_path, result_img)

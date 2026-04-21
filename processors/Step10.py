@@ -193,7 +193,7 @@ def detect_orange_rectangles(image_path, output_path='results.png'):
         }
         rectangles_data.append(rectangle_info)
         
-        print(f"{i+1}: Size={w:.1f}x{h:.1f}, Contours={len(contours_group)}")
+        pass  # rectangle detected
     
     # Save result
     if output_path.lower().endswith('.svg'):

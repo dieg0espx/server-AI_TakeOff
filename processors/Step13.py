@@ -466,19 +466,10 @@ def process_container_group(prefix, containers, paths, svg_content):
     # ── Identify glyphs ──
     analyzed = find_glyph_paths(contained)
 
-    # ── Print report ──
-    for num in sorted(analyzed.keys()):
-        c = containers[num]
-        data = analyzed[num]
-        print(f"=== {c['id']} === (x={c['x']}, y={c['y']}, {c['w']}x{c['h']})")
-        print(f"  Structural paths: {len(data['structural'])}")
-        for p in data['structural']:
-            print(f"    - {p['id']:20s}  w={p['width']:8.2f}  h={p['height']:8.2f}")
-        print(f"  Glyphs: {len(data['glyphs'])}")
-        for g in data['glyphs']:
-            digit_label = f" [digit {g['digit']}]" if g['digit'] else ""
-            print(f"    - {g['id']:20s}  w={g['width']:5.2f}  h={g['height']:5.2f}{digit_label}")
-        print()
+    # ── Print summary ──
+    total_structural = sum(len(analyzed[n]['structural']) for n in analyzed)
+    total_glyphs = sum(len(analyzed[n]['glyphs']) for n in analyzed)
+    print(f"  {len(analyzed)} containers, {total_structural} structural paths, {total_glyphs} glyphs")
 
     # ── Apply color changes ──
     changed_count = 0
@@ -488,7 +479,6 @@ def process_container_group(prefix, containers, paths, svg_content):
                 new_color = GLYPH_COLOR_CHANGES[g['digit']]
                 svg_content = change_path_color(svg_content, g['id'], new_color)
                 changed_count += 1
-                print(f"  Changed {g['id']} (in {containers[num]['id']}, digit {g['digit']}) -> {new_color}")
 
     # ── Move labels to bottom-right ──
     svg_content, moved_count = move_labels_to_bottom_right(svg_content, containers, prefix)

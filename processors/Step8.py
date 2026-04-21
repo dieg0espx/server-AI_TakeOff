@@ -195,7 +195,7 @@ def detect_pink_shapes(image_path, output_path='results.png'):
         }
         shapes_data.append(shape_info)
 
-        print(f"{i+1}: Size={w:.1f}x{h:.1f}, Contours={len(contours_group)}")
+        pass  # shape detected
 
     # Save result
     if output_path.lower().endswith('.svg'):
