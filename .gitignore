@@ -56,3 +56,8 @@ logs/
 # Temporary files
 *.tmp
 *.temp
+
+# Pipeline-generated artifacts
+files/tempData/
+files/Step*-results.png
+files/Step*.svg
