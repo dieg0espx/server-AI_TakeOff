@@ -640,6 +640,7 @@ def run_pipeline_with_logging(upload_id: str):
         print(f"⚠️  Error in Step13b: {e}")
 
     # Upload BOTH Step10 SVGs to TTF SVG API
+    upload_ok = True
     try:
         print(f"\n📤 Uploading SVGs to TTF API...")
         from api.cloudinary_manager import upload_svg_to_api
@@ -647,36 +648,72 @@ def run_pipeline_with_logging(upload_id: str):
         if 'svg_urls' not in data:
             data['svg_urls'] = {}
 
+        # Per-run suffix so each upload has a unique filename (avoids CDN/browser cache)
+        upload_suffix = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        def _upload_with_unique_name(src_path: str):
+            """Copy src to a timestamped name, upload that copy, then remove the copy."""
+            if not os.path.exists(src_path):
+                return None
+            base, ext = os.path.splitext(os.path.basename(src_path))
+            unique_name = f"{base}_{upload_suffix}{ext}"
+            unique_path = os.path.join(os.path.dirname(src_path), unique_name)
+            try:
+                shutil.copy2(src_path, unique_path)
+                return upload_svg_to_api(unique_path)
+            finally:
+                if os.path.exists(unique_path):
+                    try:
+                        os.remove(unique_path)
+                    except Exception:
+                        pass
+
         # Upload no slab band version
         svg_no_slab = "files/Step11_no_slab_band.svg"
         if os.path.exists(svg_no_slab):
-            svg_url = upload_svg_to_api(svg_no_slab)
+            svg_url = _upload_with_unique_name(svg_no_slab)
             if svg_url:
                 data['svg_urls']['step10_no_slab_band'] = svg_url
                 data['svg_urls']['step10'] = svg_url  # Backwards compatibility
                 print(f"✅ Step11_no_slab_band.svg uploaded: {svg_url}")
             else:
+                upload_ok = False
                 print("⚠️  Failed to upload Step11_no_slab_band.svg")
         else:
+            upload_ok = False
             print(f"⚠️  {svg_no_slab} not found")
 
         # Upload with slab band version
         svg_with_slab = "files/Step11_with_slab_band.svg"
         if os.path.exists(svg_with_slab):
-            svg_url = upload_svg_to_api(svg_with_slab)
+            svg_url = _upload_with_unique_name(svg_with_slab)
             if svg_url:
                 data['svg_urls']['step10_with_slab_band'] = svg_url
                 print(f"✅ Step11_with_slab_band.svg uploaded: {svg_url}")
             else:
+                upload_ok = False
                 print("⚠️  Failed to upload Step11_with_slab_band.svg")
         else:
+            upload_ok = False
             print(f"⚠️  {svg_with_slab} not found")
+
+        # Re-load data.json so any fields written by Step13/Step13b (e.g.
+        # container_glyphs, container_glyphs_detail, crossbar_totals, frame_totals)
+        # aren't clobbered by our stale in-memory copy. Then merge svg_urls in.
+        try:
+            with open(data_file, 'r') as f:
+                data_on_disk = json.load(f)
+            data_on_disk['svg_urls'] = data.get('svg_urls', data_on_disk.get('svg_urls', {}))
+            data = data_on_disk
+        except Exception as reload_err:
+            print(f"⚠️  Could not reload data.json before SVG-URL write: {reload_err}")
 
         # Write updated data.json with SVG URLs
         with open(data_file, 'w') as f:
             json.dump(data, f, indent=4)
 
     except Exception as e:
+        upload_ok = False
         print(f"⚠️  Error uploading SVGs to TTF API: {str(e)}")
 
     # Now run Step14 (Step15 will run later after logs are saved)
@@ -690,36 +727,49 @@ def run_pipeline_with_logging(upload_id: str):
     else:
         print(f"⚠️  Step14 failed, but pipeline will continue")
 
-    # ── Cleanup intermediate files ──
+    # ── Archive intermediate files to ~/Desktop/OUTPUT/<TIMESTAMP>/ then clean up ──
     try:
         print(f"\n{'='*60}")
-        print("🧹 Cleaning up intermediate files")
+        print("🗂️  Archiving intermediate files to Desktop/OUTPUT")
         print(f"{'='*60}")
 
         files_dir = "files"
-        keep_files = {
-            "original.pdf",
-            "Step11_no_slab_band.svg",
-            "Step11_with_slab_band.svg",
-        }
 
-        removed_count = 0
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        archive_dir = os.path.expanduser(f"~/Desktop/OUTPUT/{timestamp}")
+        os.makedirs(archive_dir, exist_ok=True)
+        print(f"  Archive: {archive_dir}")
+
+        archived_count = 0
         for f in os.listdir(files_dir):
-            filepath = os.path.join(files_dir, f)
-            if f in keep_files:
-                continue
-            if f == "tempData":
-                shutil.rmtree(filepath)
-                print(f"  Removed {filepath}/")
-                removed_count += 1
-            elif os.path.isfile(filepath):
-                os.remove(filepath)
-                removed_count += 1
+            src = os.path.join(files_dir, f)
+            dst = os.path.join(archive_dir, f)
+            if os.path.isdir(src):
+                shutil.copytree(src, dst, dirs_exist_ok=True)
+            else:
+                shutil.copy2(src, dst)
+            archived_count += 1
 
-        print(f"  Removed {removed_count} intermediate files/directories")
-        print(f"  Kept: {', '.join(keep_files)}")
+        if os.path.exists("data.json"):
+            shutil.copy2("data.json", os.path.join(archive_dir, "data.json"))
+            archived_count += 1
+
+        print(f"  Archived {archived_count} files/directories")
+
+        if not upload_ok:
+            print("  ⚠️  SVG upload was not confirmed — skipping wipe of files/ so you can retry")
+        else:
+            removed_count = 0
+            for f in os.listdir(files_dir):
+                filepath = os.path.join(files_dir, f)
+                if os.path.isdir(filepath):
+                    shutil.rmtree(filepath)
+                else:
+                    os.remove(filepath)
+                removed_count += 1
+            print(f"  Removed {removed_count} files/directories — files/ is now empty")
     except Exception as e:
-        print(f"⚠️  Cleanup error: {e}")
+        print(f"⚠️  Archive/cleanup error: {e}")
 
     # SVG URL updates will happen after Step15 in process_ai_takeoff_sync
     return True, None, None
@@ -865,6 +915,29 @@ async def process_ai_takeoff_sync(upload_id: str, company: str = None, jobsite: 
     """Synchronous processing"""
     try:
         await log_to_client(upload_id, f"📄 Starting PDF download for upload_id: {upload_id}")
+
+        # Wipe files/ from any previous run so leftover artifacts can't shadow this one
+        try:
+            files_dir = "files"
+            if os.path.isdir(files_dir):
+                for f in os.listdir(files_dir):
+                    p = os.path.join(files_dir, f)
+                    if os.path.isdir(p):
+                        shutil.rmtree(p)
+                    else:
+                        os.remove(p)
+            os.makedirs(os.path.join(files_dir, "tempData"), exist_ok=True)
+            await log_to_client(upload_id, "🧹 Cleared files/ from previous run")
+        except Exception as pre_clean_err:
+            await log_to_client(upload_id, f"⚠️  Pre-run cleanup error: {pre_clean_err}", "warning")
+
+        # Reset data.json so the previous run's results can't bleed into this one
+        try:
+            with open('data.json', 'w') as f:
+                json.dump({}, f)
+            await log_to_client(upload_id, "🧹 Reset data.json")
+        except Exception as data_reset_err:
+            await log_to_client(upload_id, f"⚠️  data.json reset error: {data_reset_err}", "warning")
 
         # Store company and jobsite in data.json early
         if company or jobsite:
