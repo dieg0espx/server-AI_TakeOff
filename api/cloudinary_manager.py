@@ -3,10 +3,18 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 import requests
+import ftplib
+from datetime import datetime
 from typing import Optional
 
-# SVG Upload API configuration
-SVG_UPLOAD_URL = "https://server-employess-ttf.vercel.app/api/ai-takeoff-upload"
+# FTP storage for uploaded SVGs (bypasses the Vercel 4.5MB function-body limit).
+# The previous Vercel proxy at server-employess-ttf.vercel.app/api/ai-takeoff-upload
+# did the same FTP upload internally; we now do it directly from Python.
+FTP_HOST = os.getenv("TTF_FTP_HOST", "151.106.98.244")
+FTP_USER = os.getenv("TTF_FTP_USER", "u969084943.ftpImages")
+FTP_PASSWORD = os.getenv("TTF_FTP_PASSWORD", "ftpImages2020?")
+FTP_REMOTE_DIR = "/AI-takeOff"
+PUBLIC_URL_BASE = "https://ftp-images.ttfconstruction.com/AI-takeOff"
 
 # Database update API configuration
 UPDATE_SVG_API_URL = "https://ttfconstruction.com/ai-takeoff-results/update_svg.php"
@@ -55,39 +63,35 @@ def update_svg_in_database(tracking_url: str, svg_url: str) -> bool:
 
 def upload_svg_to_api(file_path: str) -> Optional[str]:
     """
-    Upload an SVG file to the TTF SVG API
+    Upload an SVG file directly to the TTF FTP server, returning the public URL.
 
-    Args:
-        file_path: Path to the SVG file
-
-    Returns:
-        URL of the uploaded SVG or None if upload failed
+    Replaces the previous HTTP upload to a Vercel proxy, which had a 4.5MB
+    function-body limit. FTP has no such limit.
     """
+    if not os.path.exists(file_path):
+        print(f"❌ SVG file not found: {file_path}")
+        return None
+
+    timestamp = datetime.now().strftime("%m_%d_%Y_%H_%M_%S")
+    remote_filename = f"{timestamp}.svg"
+    remote_path = f"{FTP_REMOTE_DIR}/{remote_filename}"
+    size = os.path.getsize(file_path)
+    print(f"📤 Uploading {file_path} ({size/1024/1024:.2f} MB) to FTP as {remote_path}...")
+
     try:
-        if not os.path.exists(file_path):
-            print(f"❌ SVG file not found: {file_path}")
-            return None
+        with ftplib.FTP(FTP_HOST, timeout=120) as ftp:
+            ftp.login(user=FTP_USER, passwd=FTP_PASSWORD)
+            try:
+                ftp.cwd(FTP_REMOTE_DIR)
+            except ftplib.error_perm:
+                ftp.mkd(FTP_REMOTE_DIR)
+                ftp.cwd(FTP_REMOTE_DIR)
+            with open(file_path, 'rb') as f:
+                ftp.storbinary(f"STOR {remote_filename}", f)
 
-        print(f"📤 Uploading SVG {file_path} to TTF API...")
-
-        # Open and upload the file
-        with open(file_path, 'rb') as f:
-            files = {'image': (os.path.basename(file_path), f, 'image/svg+xml')}
-            response = requests.post(SVG_UPLOAD_URL, files=files, timeout=60)
-
-        if response.status_code == 200:
-            data = response.json()
-            if data.get('success'):
-                url = data.get('url')
-                print(f"✅ SVG uploaded successfully: {url}")
-                return url
-            else:
-                print(f"❌ SVG upload failed: {data.get('message', 'Unknown error')}")
-                return None
-        else:
-            print(f"❌ SVG upload failed with status {response.status_code}: {response.text}")
-            return None
-
+        url = f"{PUBLIC_URL_BASE}/{remote_filename}"
+        print(f"✅ SVG uploaded successfully: {url}")
+        return url
     except Exception as e:
-        print(f"❌ Error uploading SVG to API: {str(e)}")
+        print(f"❌ FTP upload failed: {e}")
         return None
