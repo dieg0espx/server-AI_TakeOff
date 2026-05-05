@@ -37,6 +37,8 @@ GLYPH_SIGNATURES = {
         re.compile(r'^-?\d{1,2},\s*1\s+-\d,-1[89]'),
         # Also "h -20 l -3,-18" variant
         re.compile(r'^h\s+-?\d{1,2}\s+l?\s*-?\d,-1[89]'),
+        # Slight-slant variant: "-21,-1 -2,-18" (slight downslope on top stroke)
+        re.compile(r'^-?\d{1,2},-?[01]\s+-?\d,-1[89]'),
         # Vertical containers (horizontal text): starts with "-1,-21 19,-2" or similar
         re.compile(r'^-?1,-2[01]\s+1[89],-\d'),
         # Also "v -21 l 18,-2" variant
@@ -47,8 +49,8 @@ GLYPH_SIGNATURES = {
         re.compile(r'^-4[34],[12]\s+2[89],-2[12]'),
         # Horizontal variant: "-44,-1 30,-20 v 31"
         re.compile(r'^-4[34],-?[01]\s+[23]\d,-2[01]'),
-        # Horizontal variant: "h -44 l 29,-21 v 31"
-        re.compile(r'^h\s+-4[34]\s+l?\s*[23]\d,-2[12]'),
+        # Horizontal variant: "h -44 l 29,-21 v 31"  (also accept "-20" vertical leg)
+        re.compile(r'^h\s+-4[34]\s+l?\s*[23]\d,-2[012]'),
         # Vertical orientation: "2,44 -22,-29 31,-1" or "2,43 -22,-28" etc.
         re.compile(r'^[12],4[34]\s+-2[12],-2[89]'),
         # Alternate vertical "4": "v 44 l -21,-30 h 32" or "v 44 l -21,-29 h 31" etc.
@@ -73,8 +75,22 @@ GLYPH_SIGNATURES = {
         re.compile(r'^-\d,[45]\s+-[67],\d\s+h\s+-\d\s+l\s+-\d,-\d\s+-\d,-\d\s+-\d,-\d{1,2}\s+v\s+-\d{1,2}\s+l\s+\d,-\d'),
         # Vertical text variant: uses "1,-11" instead of "v -11"
         re.compile(r'^-\d,[45]\s+-[67],[23]\s+h\s+-\d\s+l\s+-\d,-[23]\s+-\d,-\d\s+-\d,-\d{1,2}\s+[01],-\d{1,2}\s+\d,-\d'),
-        # Horizontal text: "-4,-3 -2,-6 v -4 l 2,-6 6,-4 11,-2 h 10 ..."
-        re.compile(r'^-[345],-[23]\s+-\d,-[67]\s+v\s+-\d\s+l\s+\d,-\d\s+\d,-\d\s+\d{1,2},-\d\s+h\s+\d{1,2}\s+l\s+\d,\d'),
+        # Horizontal text: "-4,-3 -2,-6 v -4 l 2,-6 6,-4 11,-2 h 10 l 8,2 ..."
+        # Bottom edge accepts either flat "h 10 l" or slight-slant "10,1" / "10,0".
+        re.compile(r'^-[345],-[23]\s+-\d,-[67]\s+v\s+-\d\s+l\s+\d,-\d\s+\d,-\d\s+\d{1,2},-\d\s+(?:h\s+\d{1,2}\s+l|\d{1,2},[01])\s+\d,\d'),
+        # Vertical text, longer top arc (segmented top stroke before bottom curve):
+        # "-3,4 -6,3 -4,-1 -6,-2 -4,-6 -2,-10 v -11 l 2,-8 ..."
+        re.compile(r'^-\d,[45]\s+-\d,\d\s+-\d,-\d\s+-\d,-\d\s+-\d,-\d\s+-\d,-1[01]\s+v\s+-1[01]\s+l\s+\d,-\d'),
+    ],
+    "7": [
+        # Horizontal text: long down-right diagonal + small terminal tick.
+        # e.g. "-43,23 -1,-29" / "-43,22 -1,-29" / "-44,23 -1,-29"
+        re.compile(r'^-4[2345],2[234]\s+-?[01],-2[89]$'),
+        # Mirrored horizontal: "43,-23 1,29" etc.
+        re.compile(r'^4[2345],-2[234]\s+-?[01],2[89]$'),
+        # Vertical text orientation: "23,43 -29,1" / "22,43 -29,0"
+        re.compile(r'^2[234],4[2345]\s+-2[89],-?[01]$'),
+        re.compile(r'^-2[234],-4[2345]\s+2[89],-?[01]$'),
     ],
     "cross_v": [
         # Vertical line of cross/plus: "v -37" or "v -38" etc.
@@ -100,6 +116,7 @@ GLYPH_COLOR_CHANGES = {
     "slash": "#ffffff",
     "backslash": "#ffffff",
     "6": "#ffffff",
+    "7": "#ffffff",
     "cross_v": "#ffffff",
     "cross_h": "#ffffff",
 }
@@ -236,12 +253,27 @@ def parse_path_bbox(d):
     return min(xs), min(ys), max(xs), max(ys)
 
 
-def box_contained(container, path_box):
-    """Check if path_box is fully contained within container. Each is (min_x, min_y, max_x, max_y)."""
-    return (path_box[0] >= container[0] and
-            path_box[1] >= container[1] and
-            path_box[2] <= container[2] and
-            path_box[3] <= container[3])
+def box_contained(container, path_box, tol=1.0):
+    """Check if path_box is fully contained within container, with sub-pixel tolerance
+    to absorb stroke linecap overhang and floating-point drift on edges."""
+    return (path_box[0] >= container[0] - tol and
+            path_box[1] >= container[1] - tol and
+            path_box[2] <= container[2] + tol and
+            path_box[3] <= container[3] + tol)
+
+
+def box_overlap_fraction(container, path_box):
+    """Return the fraction of path_box's area that lies inside container.
+    Used to classify glyphs whose stroke overhangs the container edge."""
+    iw = max(0.0, min(path_box[2], container[2]) - max(path_box[0], container[0]))
+    ih = max(0.0, min(path_box[3], container[3]) - max(path_box[1], container[1]))
+    inter = iw * ih
+    pw = max(0.0, path_box[2] - path_box[0])
+    ph = max(0.0, path_box[3] - path_box[1])
+    parea = pw * ph
+    if parea <= 0:
+        return 0.0
+    return inter / parea
 
 
 REFERENCE_SCALE = 0.16  # Scale factor the glyph patterns were developed against
@@ -348,12 +380,26 @@ def get_g10_paths(root):
     return paths
 
 
-def find_contained_paths(containers, paths):
-    """For each container, find all paths fully contained within it."""
+def find_contained_paths(containers, paths, min_overlap=0.5):
+    """For each container, find all paths that belong to it. A path counts when:
+      - majority (>= min_overlap) of its bbox area lies inside the container, OR
+      - it has a zero-area bbox (a single straight stroke) and is contained
+        within the container's edges (with sub-pixel tolerance).
+    This catches both stroke-overhang glyphs and degenerate strokes that the
+    pure-overlap rule would otherwise reject."""
     results = {}
     for num in sorted(containers.keys()):
         cbox = containers[num]['screen_bbox']
-        matched = [p for p in paths if box_contained(cbox, p['screen_bbox'])]
+        matched = []
+        for p in paths:
+            pb = p['screen_bbox']
+            parea = max(0.0, pb[2]-pb[0]) * max(0.0, pb[3]-pb[1])
+            if parea == 0.0:
+                if box_contained(cbox, pb):
+                    matched.append(p)
+            else:
+                if box_overlap_fraction(cbox, pb) >= min_overlap:
+                    matched.append(p)
         results[num] = matched
     return results
 
