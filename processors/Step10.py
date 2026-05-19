@@ -87,17 +87,18 @@ def detect_orange_rectangles(image_path, output_path='results.png'):
     for contour in contours:
         area = cv2.contourArea(contour)
         
-        # Filter by area (adjust these values based on your rectangles)
-        if 50 < area < 10000:  # Broader range to catch all potential rectangles
+        # Filter by area — real orange frames are ~5,200 px²; reject anything
+        # dramatically smaller (e.g. 37×13 noise blobs).
+        if 2000 < area < 10000:
             # Get bounding rectangle
             x, y, w, h = cv2.boundingRect(contour)
-            
+
             # Check aspect ratio (rectangles can have various aspect ratios)
             aspect_ratio = w / h if h > 0 else 0
-            # Allow for rectangular shapes (not too extreme aspect ratios)
-            if 0.2 < aspect_ratio < 5.0:  # Allow rectangles but not extremely thin lines
-                # Additional check: ensure reasonable size
-                if w >= 10 and h >= 10:  # Minimum size requirement
+            if 0.2 < aspect_ratio < 5.0:
+                # Minimum dimensions — legit orange frames are ~56×92, so
+                # require both sides to be at least 30px.
+                if w >= 30 and h >= 30:
                     valid_contours.append((contour, x, y, w, h, area))
     
     print(f"Found {len(valid_contours)} initial contours")

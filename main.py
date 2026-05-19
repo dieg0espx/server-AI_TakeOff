@@ -639,6 +639,19 @@ def run_pipeline_with_logging(upload_id: str):
     except Exception as e:
         print(f"⚠️  Error in Step13b: {e}")
 
+    # Step16: Group same-color frames sharing an axis, draw red bounding rects
+    try:
+        print(f"\n{'='*60}")
+        print("📐 Running Step16 (axis-aligned frame groups)")
+        print(f"{'='*60}")
+        from processors.Step16 import run_step16
+        if run_step16():
+            print("✅ Step16 completed")
+        else:
+            print("⚠️  Step16 failed, continuing...")
+    except Exception as e:
+        print(f"⚠️  Error in Step16: {e}")
+
     # Upload BOTH Step10 SVGs to TTF SVG API
     upload_ok = True
     try:
