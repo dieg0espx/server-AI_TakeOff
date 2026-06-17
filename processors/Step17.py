@@ -355,12 +355,11 @@ def find_alum_beams(svg_path: Path, group_bbox=None):
     vb = _viewbox(root)
     parent_of = _parent_map(root)
 
-    # Membership region: the frame bbox, padded outward so rails sitting just
-    # outside the frame edges (a beam's top/bottom rail typically lies right at
-    # or just past the frame bounds) still count as part of the group. The pad
-    # is much smaller than Step16's viewBox crop padding so we don't accept
-    # rails from neighbouring groups.
-    GROUP_BBOX_PAD = 40.0
+    # Membership region: the frame bbox + a small pad. The pad must be just
+    # large enough to catch rails sitting right at a frame edge but small
+    # enough to exclude rails belonging to the neighbouring group (e.g. for
+    # frame groups packed close together with a ~35 px gap, pad ≤ 17).
+    GROUP_BBOX_PAD = 15.0
     if group_bbox is not None:
         mx_lo = group_bbox[0] - GROUP_BBOX_PAD
         my_lo = group_bbox[1] - GROUP_BBOX_PAD
@@ -488,41 +487,147 @@ def find_alum_beams(svg_path: Path, group_bbox=None):
     return hits
 
 
-def pair_rails(beams):
+def pair_rails(beams, canonical_perp=None):
     """Pair the lined-up rails into beam *segments*. Two rails are partners
     if they share orientation, are offset on the perpendicular axis, and
     their parallel extents overlap. The paired beam spans only the *shared*
-    overlap (so wood beams aren't stamped where one rail doesn't exist)."""
+    overlap (so wood beams aren't stamped where one rail doesn't exist).
+
+    A rail CAN appear in more than one pair (as the shared middle rail of two
+    stacked beams). What we forbid is reusing the same UNORDERED pair (i, j).
+
+    `canonical_perp`: optional {(orient, size): expected_perp_distance} from
+    the pipeline-wide first pass. If this group's own rail population
+    suggests a different canonical (mode of adjacent perps among same-size
+    rails), we use the local one instead — supports stacked beam patterns
+    that don't match the drawing's dominant gap.
+    """
     OVERLAP_TOL = 2.0
-    pairs = []
-    used = set()
+    PERP_REL_TOL = 0.20  # 20% over canonical is the most we accept
+
+    def _ext(r):
+        return (r["y2"] - r["y1"]) if r["orient"] == "v" else (r["x2"] - r["x1"])
+
+    effective_canon = dict(canonical_perp or {})
+
+    def _perp_coord(r):
+        return r["x1"] if r["orient"] == "v" else r["y1"]
+
+    # "Stubs" — rails much shorter than their peers — get filtered out before
+    # pairing. They're usually fragments of a neighbour group bleeding into
+    # our viewBox; pairing one with a long real rail produces a wrong-perp
+    # pair (G24 case). Threshold: 40% of the longest same-(orient,size) rail.
+    STUB_REL = 0.4
+    max_ext_by_key = {}
+    for r in beams:
+        k = (r["orient"], r["size"])
+        max_ext_by_key[k] = max(max_ext_by_key.get(k, 0.0), _ext(r))
+
+    # Enumerate every valid (i, j) candidate with its score, then greedily
+    # pick the best ones first, allowing each rail to participate in multiple
+    # pairs but forbidding the same UNORDERED pair twice.
+    candidates = []  # list of (score, i, j, perp)
     for i, a in enumerate(beams):
-        if i in used:
-            continue
-        partner = None
-        for j, b in enumerate(beams):
-            if j == i or j in used:
-                continue
+        for j in range(i + 1, len(beams)):
+            b = beams[j]
             if a["orient"] != b["orient"]:
                 continue
             if a["size"] != b["size"]:
-                continue  # only pair same-size rails
+                continue
             if a["orient"] == "v":
-                if abs(a["x1"] - b["x1"]) <= 1.0:  # same x → same rail, not partner
+                perp = abs(a["x1"] - b["x1"])
+                if perp <= 1.0:
                     continue
-                if min(a["y2"], b["y2"]) - max(a["y1"], b["y1"]) > OVERLAP_TOL:
-                    partner = j; break
+                if min(a["y2"], b["y2"]) - max(a["y1"], b["y1"]) <= OVERLAP_TOL:
+                    continue
             else:
-                if abs(a["y1"] - b["y1"]) <= 1.0:
+                perp = abs(a["y1"] - b["y1"])
+                if perp <= 1.0:
                     continue
-                if min(a["x2"], b["x2"]) - max(a["x1"], b["x1"]) > OVERLAP_TOL:
-                    partner = j; break
-        if partner is None:
+                if min(a["x2"], b["x2"]) - max(a["x1"], b["x1"]) <= OVERLAP_TOL:
+                    continue
+            canon = effective_canon.get((a["orient"], a["size"]))
+            if canon is not None:
+                # Reject perps significantly larger than the canonical — they
+                # span across a real pair, not adjacent to it.
+                if perp > canon * (1.0 + PERP_REL_TOL):
+                    continue
+                # Reject perps significantly smaller than the canonical — a
+                # pair gap that's e.g. 36 or 48 when the canon is 84 is two
+                # rails of one *side* of a wider stack, not a real rail pair.
+                if perp < canon * 0.75:
+                    continue
+                score = (abs(perp - canon), abs(_ext(a) - _ext(b)))
+            else:
+                score = (abs(_ext(a) - _ext(b)), perp)
+
+            # Skip stub-with-long mismatched pairs (G24-style).
+            max_ext = max_ext_by_key[(a["orient"], a["size"])]
+            if max_ext > 0:
+                a_rel = _ext(a) / max_ext
+                b_rel = _ext(b) / max_ext
+                if min(a_rel, b_rel) < STUB_REL and max(a_rel, b_rel) > STUB_REL:
+                    continue
+
+            candidates.append((score, i, j, perp))
+
+    # Sort by score (closest-to-canonical) so the best pairs claim rails
+    # first. Each rail is used in at most one pair (MAX_USES=1), so the
+    # remaining candidates with the same rail are dropped automatically.
+    candidates.sort(key=lambda c: c[0])
+
+    pairs = []
+    seen = set()  # (i, j) already paired
+    # A rail can be used in multiple pairs, but limit to 2 pair-partners to
+    # avoid runaway when an alum-color smudge has many neighbors.
+    use_count = {}
+    # Each rail belongs to at most one pair. Stacked pairs sharing a middle
+    # rail are intentionally not supported — the field's wood-beam pattern
+    # doesn't physically share rails between two beams; that would require
+    # the middle "rail" to be a real shared beam piece, which it never is.
+    MAX_USES = 1
+
+    # Track each rail's perpendicular coordinate so we can detect "spanning"
+    # pairs that cross over an already-paired middle rail.
+    def _perp_coord(r):
+        return r["x1"] if r["orient"] == "v" else r["y1"]
+    perp_coords = {idx: _perp_coord(beams[idx]) for idx in range(len(beams))}
+
+    paired_with = {}  # idx → set of partner idxs
+
+    for score, i, j, perp in candidates:
+        key = (i, j)
+        if key in seen:
             continue
-        b = beams[partner]
-        used.add(i); used.add(partner)
+        if use_count.get(i, 0) >= MAX_USES or use_count.get(j, 0) >= MAX_USES:
+            continue
+        # Reject pairs that span over an already-paired neighbor (the
+        # "outer rail pair across a 3-rail stack" mistake). i.e. if there is
+        # any rail k whose perp coord is strictly between i and j and whose
+        # orientation/size match, and k is already in some pair, then (i, j)
+        # would cross over a real beam — drop it.
+        pi, pj = perp_coords[i], perp_coords[j]
+        p_lo, p_hi = min(pi, pj), max(pi, pj)
+        spans_existing = False
+        for k, pk in perp_coords.items():
+            if k == i or k == j:
+                continue
+            if p_lo + 1.0 < pk < p_hi - 1.0:
+                if (beams[k]["orient"] == beams[i]["orient"]
+                        and beams[k]["size"] == beams[i]["size"]
+                        and paired_with.get(k)):
+                    spans_existing = True
+                    break
+        if spans_existing:
+            continue
+
+        seen.add(key)
+        use_count[i] = use_count.get(i, 0) + 1
+        use_count[j] = use_count.get(j, 0) + 1
+        paired_with.setdefault(i, set()).add(j)
+        paired_with.setdefault(j, set()).add(i)
+        a, b = beams[i], beams[j]
         if a["orient"] == "v":
-            # clip beam to the y-range where BOTH rails exist
             y1 = max(a["y1"], b["y1"])
             y2 = min(a["y2"], b["y2"])
             xL, xR = sorted((a["x1"], b["x1"]))
@@ -549,12 +654,21 @@ def _size_factor_local(size_name: str) -> float:
     return float(m.group(1).replace("_", ".")) if m else 0.0
 
 
-def build_wood_beams(beams, spacing_inches: float, units_per_foot: float | None = None):
+def build_wood_beams(beams, spacing_inches: float, units_per_foot: float | None = None,
+                     group_bbox=None, canonical_perp=None):
     """Generate one line segment per wood beam, perpendicular to each pair of
     aluminum rails, stamped every `spacing_inches` along the run. If
     `units_per_foot` isn't given, derive it from the first paired segment's
-    world length / its nominal foot length. Returns world-coord lines."""
-    segments = pair_rails(beams)
+    world length / its nominal foot length.
+
+    `group_bbox` (x_min, y_min, x_max, y_max): if given, extend each pair's
+    parallel extent to the bbox so wood beams cover the entire group, not
+    just the short stretch where both rails were physically drawn. Real
+    drawings sometimes show alum rails only over part of a frame run; the
+    wood-beam pattern in the field still spans every frame.
+
+    Returns world-coord lines."""
+    segments = pair_rails(beams, canonical_perp=canonical_perp)
     if units_per_foot is None:
         units_per_foot = 12.0
         for seg in segments:
@@ -567,8 +681,18 @@ def build_wood_beams(beams, spacing_inches: float, units_per_foot: float | None 
     for seg in segments:
         if seg["orient"] == "v":
             xL, xR = seg["rail_left_x"], seg["rail_right_x"]
-            y = seg["y1"]
-            stop = seg["y2"]
+            if group_bbox is not None:
+                # Stamp across the group's frame bbox — independent of rail
+                # extent. This gives wood beams that cover ALL frames in the
+                # group, and clips rails that extend past the group (a long
+                # rail can span what Step16 sees as several frame groups).
+                y_start = group_bbox[1]
+                y_stop = group_bbox[3]
+            else:
+                y_start = seg["y1"]
+                y_stop = seg["y2"]
+            y = y_start
+            stop = y_stop
             # Stamp from y to stop in `step` increments (inclusive of start,
             # exclude the very end so we don't double-stamp shared edges).
             while y < stop - 1e-6:
@@ -576,8 +700,14 @@ def build_wood_beams(beams, spacing_inches: float, units_per_foot: float | None 
                 y += step
         else:
             yT, yB = seg["rail_top_y"], seg["rail_bot_y"]
-            x = seg["x1"]
-            stop = seg["x2"]
+            if group_bbox is not None:
+                x_start = group_bbox[0]
+                x_stop = group_bbox[2]
+            else:
+                x_start = seg["x1"]
+                x_stop = seg["x2"]
+            x = x_start
+            stop = x_stop
             while x < stop - 1e-6:
                 lines.append((x, yT, x, yB))
                 x += step
@@ -614,7 +744,7 @@ def _size_factor(size_name: str) -> float:
     return float(m.group(1).replace("_", ".")) if m else 0.0
 
 
-def process_group(svg_path: Path, group_bbox=None):
+def process_group(svg_path: Path, group_bbox=None, canonical_perp=None):
     """Run the full Step17 pipeline on one G*.svg file.
 
     `group_bbox`: optional (x_min, y_min, x_max, y_max) of the group's frame
@@ -631,6 +761,24 @@ def process_group(svg_path: Path, group_bbox=None):
         return None
 
     alum = find_alum_beams(svg_path, group_bbox=group_bbox)
+
+    # A real frame group has wood beams of a single orientation and a single
+    # size. If find_alum_beams returned a mix (e.g. perpendicular bundle
+    # crossing the group, or a few extra small rails), keep only the dominant
+    # orientation+size by total painted extent and drop the rest.
+    def _dominant(rails):
+        if not rails:
+            return rails
+        weight = {}
+        for r in rails:
+            extent = (r["x2"] - r["x1"]) if r["orient"] == "h" else (r["y2"] - r["y1"])
+            key = (r["orient"], r["size"])
+            weight[key] = weight.get(key, 0.0) + extent
+        best = max(weight, key=weight.get)
+        return [r for r in rails if (r["orient"], r["size"]) == best]
+
+    alum = _dominant(alum)
+
     # Convert each rail's world-coord extent into feet using units-per-foot
     # derived from the rail itself (extent / nominal_ft). Halve the sum to
     # count beam-feet (two parallel rails per physical beam). This is robust
@@ -662,7 +810,8 @@ def process_group(svg_path: Path, group_bbox=None):
     wood_svg_path = None
     if spacing_counts and beam_length_ft > 0:
         dominant_inches = max(spacing_counts, key=spacing_counts.get)
-        wood_lines = build_wood_beams(alum, dominant_inches)
+        wood_lines = build_wood_beams(alum, dominant_inches, group_bbox=group_bbox,
+                                      canonical_perp=canonical_perp)
         wood_svg_path = svg_path.parent / (svg_path.stem + "_wood.svg")
         draw_wood_beams_on_svg(svg_path, wood_lines,
                                stroke="#FFFF00", stroke_width=4.0,
@@ -680,6 +829,86 @@ def process_group(svg_path: Path, group_bbox=None):
     }
 
 
+def _compute_canonical_perp(svg_files, group_bounds):
+    """First-pass scan: collect every adjacent-perp distance among same-
+    (orient, size) rails across all groups, then take the mode per key. The
+    mode is the drawing's "canonical" rail-pair gap for that beam size.
+
+    Looking at *adjacent* perps (not paired perps) avoids the chicken-and-
+    egg problem where pair_rails needs the canonical to do its job.
+    Rounded to the nearest pixel so 83.8 and 84.0 cluster together.
+    """
+    from collections import Counter
+
+    def _perp_coord(r):
+        return r["x1"] if r["orient"] == "v" else r["y1"]
+
+    perp_samples = {}
+    for svg_path in svg_files:
+        try:
+            rails = find_alum_beams(svg_path, group_bbox=group_bounds.get(svg_path.name))
+        except (ET.ParseError, OSError):
+            continue
+        if not rails:
+            continue
+        # Group rails by (orient, size) and within each, collect adjacent
+        # perp gaps from sorted coords. Adjacent (not spanning) gaps are
+        # what a real beam pair uses.
+        by_key = {}
+        for r in rails:
+            by_key.setdefault((r["orient"], r["size"]), []).append(r)
+        for key, rs in by_key.items():
+            coords = sorted({round(_perp_coord(r)) for r in rs})
+            for i in range(len(coords) - 1):
+                gap = coords[i+1] - coords[i]
+                if gap > 1:
+                    perp_samples.setdefault(key, []).append(gap)
+
+    canonical = {}
+    for key, samples in perp_samples.items():
+        if len(samples) < 3:
+            continue  # too few to trust a mode
+        canonical[key] = float(Counter(samples).most_common(1)[0][0])
+    return canonical
+
+
+_TEXT_FILL_RE = re.compile(r"fill:\s*#[0-9A-Fa-f]{3,8}")
+
+
+_TEXT_GRAY = "#4e4e4e"
+
+
+def _recolor_text_white(svg_path: Path) -> None:
+    """Recolor <text> elements: bundle text (beam call-out N'- A X B or
+    spacing @ N\" 0/C) → white, everything else → #4e4e4e."""
+    try:
+        with open(svg_path, "r", encoding="utf-8") as f:
+            text = f.read()
+        root = ET.fromstring(text)
+    except (OSError, ET.ParseError):
+        return
+    changed = False
+    for el in root.iter():
+        if _local(el.tag) != "text":
+            continue
+        content = "".join(el.itertext()).strip()
+        is_bundle = bool(BEAM_RE.match(content) or SPACING_RE.match(content))
+        target = "#ffffff" if is_bundle else _TEXT_GRAY
+        style = el.get("style", "") or ""
+        if _TEXT_FILL_RE.search(style):
+            style = _TEXT_FILL_RE.sub(f"fill:{target}", style)
+        else:
+            style = (style + f";fill:{target}").lstrip(";")
+        el.set("style", style)
+        if el.get("fill"):
+            el.set("fill", target)
+        changed = True
+    if not changed:
+        return
+    with open(svg_path, "w", encoding="utf-8") as f:
+        f.write(ET.tostring(root, encoding="unicode"))
+
+
 def run_step17():
     svg_files = sorted(GROUPS_DIR.glob("G*.svg"))
     # Skip already-generated _wood.svg outputs from prior runs
@@ -693,13 +922,25 @@ def run_step17():
     if not group_bounds:
         print("⚠️  step16_groups.json not found — falling back to viewBox membership")
 
+    # ── First pass — pair every group's rails *without* a canonical and
+    # collect the mode of perpendicular distances per (orient, size). A real
+    # rail-pair gap is consistent across the whole drawing (e.g. 84 px for
+    # alumBeam16). Ambiguous groups (G24-style trios) will produce wrong
+    # perps here, but they're outvoted by the majority. ──
+    canonical_perp = _compute_canonical_perp(svg_files, group_bounds)
+    if canonical_perp:
+        print(f"  Canonical pair gaps (orient, size → perp): {len(canonical_perp)} entries")
+        for k, v in sorted(canonical_perp.items()):
+            print(f"    {k}: {v:.1f}")
+
     print(f"🔎 Step17: processing {len(svg_files)} group SVG(s) in {GROUPS_DIR.relative_to(BASE_DIR)}")
     print(f"{'file':<10} {'bundles':>8} {'alum_rails':>11} {'alum_ft':>9} {'spacing':>9} {'wood':>6}  output")
     print("-" * 78)
 
     totals = {"bundles": 0, "rails": 0, "ft": 0.0, "wood": 0}
     for svg_path in svg_files:
-        r = process_group(svg_path, group_bbox=group_bounds.get(svg_path.name))
+        r = process_group(svg_path, group_bbox=group_bounds.get(svg_path.name),
+                          canonical_perp=canonical_perp)
         if r is None:
             continue
         spacing_str = f'{r["spacing_inches"]:g}"' if r["spacing_inches"] else "-"
@@ -718,6 +959,10 @@ def run_step17():
         f"{'TOTAL':<10} {totals['bundles']:>8} {totals['rails']:>11} "
         f"{totals['ft']:>9.2f} {'':>9} {totals['wood']:>6}"
     )
+
+    for p in sorted(GROUPS_DIR.glob("G*.svg")):
+        _recolor_text_white(p)
+
     return True
 
 

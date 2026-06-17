@@ -42,7 +42,7 @@ GROUPS_DIR = BASE_DIR / "files" / "groups"
 # Sized so paired aluminum-beam rails sitting just outside the frame bbox
 # (e.g. the second rail of an alumBeam pair) stay inside the viewBox so
 # Step17 can pair them and stamp wood beams across the full region.
-GROUP_CROP_PADDING = 100.0
+GROUP_CROP_PADDING = 10.0
 
 
 def load_frames():
@@ -352,7 +352,7 @@ ALUM_STROKES_LOWER = {
 # How far outside the group's frame bbox an alum-rail's midpoint may sit and
 # still count as "this group's rail". Matches Step17's GROUP_BBOX_PAD so both
 # steps agree on group membership.
-ALUM_GROUP_TOL = 40.0
+ALUM_GROUP_TOL = 15.0
 
 _MATRIX_RE = re.compile(
     r"matrix\(\s*([-\d.]+)[,\s]+([-\d.]+)[,\s]+([-\d.]+)[,\s]+([-\d.]+)[,\s]+([-\d.]+)[,\s]+([-\d.]+)\s*\)"
@@ -400,8 +400,14 @@ def _apply_matrix(mx, x, y):
 
 def _recolor_out_of_group_rails(root, bounds, pad=0.0):
     """Walk the tree; for every <path> with an alum-beam stroke, compute its
-    world-coord midpoint and, if it falls outside (bounds ± pad), rewrite the
-    stroke to #4e4e4e. Bounds = (x_min, y_min, x_max, y_max)."""
+    world-coord midpoint and, if it falls outside (bounds ± pad), REMOVE the
+    path from the tree. Those rails belong to a neighbouring group, so they
+    shouldn't appear in this group's cropped SVG at all.
+
+    (Kept the original name for callers; behavior changed from recolor →
+    remove since the recolored gray rails were still visually cluttering
+    the per-group views.)
+    """
     x_min, y_min, x_max, y_max = bounds
     x_min -= pad; y_min -= pad
     x_max += pad; y_max += pad
@@ -427,7 +433,9 @@ def _recolor_out_of_group_rails(root, bounds, pad=0.0):
             accum[child] = xform
             stack.append(child)
 
-    recolored = 0
+    # Collect out-of-group alum paths to remove. We can't mutate during iter,
+    # so gather first then drop via the parent map.
+    to_remove = []
     for el in root.iter():
         if _local(el.tag) != "path":
             continue
@@ -437,23 +445,23 @@ def _recolor_out_of_group_rails(root, bounds, pad=0.0):
         mid = _path_midpoint_local(el.get("d", ""))
         if mid is None:
             continue
-        # parent's accumulated transform applies to el's local coords
         par = parent_of.get(el)
         xform = accum.get(par, (1.0, 0.0, 0.0, 1.0, 0.0, 0.0))
         wx, wy = _apply_matrix(xform, mid[0], mid[1])
         if x_min <= wx <= x_max and y_min <= wy <= y_max:
-            continue  # in-group — leave as alum color
+            continue  # in-group — keep
+        to_remove.append(el)
 
-        # Out of group — rewrite stroke to #4e4e4e.
-        style = el.get("style", "") or ""
-        new_style = _STROKE_RE.sub("stroke:#4e4e4e", style)
-        if new_style != style:
-            el.set("style", new_style)
-            recolored += 1
-        elif el.get("stroke"):
-            el.set("stroke", "#4e4e4e")
-            recolored += 1
-    return recolored
+    removed = 0
+    for el in to_remove:
+        par = parent_of.get(el)
+        if par is not None:
+            try:
+                par.remove(el)
+                removed += 1
+            except ValueError:
+                pass
+    return removed
 
 
 def _filter_floorplan_group(g_el):
