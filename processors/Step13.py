@@ -698,20 +698,18 @@ def run_step13():
         success = True
         all_summary = {}
 
-        # Process each Step11 SVG variant (overwrite in-place)
-        for variant in ['no_slab_band', 'with_slab_band']:
-            svg_path = f"{base}/files/Step11_{variant}.svg"
-            if os.path.exists(svg_path):
-                print(f"\n{'=' * 60}")
-                print(f"Processing Step11_{variant}.svg")
-                print(f"{'=' * 60}")
-                result, summary = process_svg(svg_path, svg_path)
-                if not result:
-                    success = False
-                else:
-                    all_summary = summary  # Use the latest (both should be same)
+        svg_path = f"{base}/files/Step11.svg"
+        if os.path.exists(svg_path):
+            print(f"\n{'=' * 60}")
+            print(f"Processing Step11.svg")
+            print(f"{'=' * 60}")
+            result, summary = process_svg(svg_path, svg_path)
+            if not result:
+                success = False
             else:
-                print(f"⚠️  {svg_path} not found, skipping")
+                all_summary = summary
+        else:
+            print(f"⚠️  {svg_path} not found, skipping")
 
         # Save glyph totals per container type to data.json
         if all_summary:

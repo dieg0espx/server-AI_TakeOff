@@ -57,7 +57,10 @@ logs/
 *.tmp
 *.temp
 
-# Pipeline-generated artifacts
-files/tempData/
-files/Step*-results.png
+# Pipeline artifacts — generated per run, never commit
 files/Step*.svg
+files/Step*.png
+files/Step*-results*.png
+files/groups/
+files/tempData/
+files/original.svg

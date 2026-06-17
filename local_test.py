@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
-Local test runner: converts existing original.pdf to SVG via Convertio,
-then runs the processing pipeline. Skips download, cleanup, and database steps.
+Local test runner: runs the processing pipeline against the existing
+files/original.svg. Skips PDF download, Convertio conversion, cleanup,
+and database steps.
 """
 
 import os
 import sys
-import asyncio
 import json
+import shutil
 
 # Ensure we're in the project root
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
@@ -15,42 +16,6 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'api'))
 
 from dotenv import load_dotenv
 load_dotenv()
-
-from api.pdf_to_svg_converter import ConvertioConverter
-
-
-async def convert_pdf_to_svg():
-    """Convert existing original.pdf to original.svg using Convertio."""
-    pdf_path = "files/original.pdf"
-    svg_path = "files/original.svg"
-
-    if not os.path.exists(pdf_path):
-        print(f"❌ {pdf_path} not found")
-        return False
-
-    if os.path.exists(svg_path):
-        print(f"✅ {svg_path} already exists, skipping conversion")
-        return True
-
-    print(f"🔄 Converting {pdf_path} → {svg_path} via Convertio...")
-    try:
-        converter = ConvertioConverter()
-        conv_id = await converter.start_conversion()
-        print(f"   Conversion ID: {conv_id}")
-
-        await converter.upload_file(conv_id, pdf_path)
-        print(f"   PDF uploaded, waiting for conversion...")
-
-        download_url = await converter.check_status(conv_id)
-        print(f"   Conversion complete, downloading SVG...")
-
-        await converter.download_file(download_url, svg_path)
-        svg_size = os.path.getsize(svg_path)
-        print(f"✅ SVG saved: {svg_path} ({svg_size:,} bytes)")
-        return True
-    except Exception as e:
-        print(f"❌ Conversion failed: {e}")
-        return False
 
 
 def run_pipeline_no_cleanup():
@@ -70,42 +35,48 @@ def run_pipeline_no_cleanup():
     return success
 
 
-async def main():
-    # Step 1: Convert PDF to SVG
-    if not await convert_pdf_to_svg():
+def main():
+    svg_path = "files/original.svg"
+    if not os.path.exists(svg_path):
+        print(f"❌ {svg_path} not found — drop your SVG there and re-run.")
         sys.exit(1)
+    print(f"✅ Using existing {svg_path} ({os.path.getsize(svg_path):,} bytes)")
 
-    # Step 2: Run pipeline (cleanup is inside run_pipeline_with_logging,
-    # so we monkey-patch it out)
-    import main as main_module
-    import shutil
-
-    # Save original cleanup behavior — replace with no-op
-    original_func = shutil.rmtree
-    removed_files = []
+    # Patch out destructive cleanup so the local run leaves files/ intact.
+    orig_os_remove = os.remove
+    orig_rmtree = shutil.rmtree
 
     def no_remove(path, *args, **kwargs):
         print(f"   [LOCAL TEST] Skipping removal of: {path}")
 
-    def no_os_remove(path, *args, **kwargs):
-        print(f"   [LOCAL TEST] Skipping removal of: {path}")
-
-    # Patch os.remove and shutil.rmtree to skip cleanup
-    orig_os_remove = os.remove
-    os.remove = no_os_remove
+    os.remove = no_remove
     shutil.rmtree = no_remove
+
+    # Skip the Step14 Gemini rewrite (costs an API call) via env var that
+    # Step14.rewrite_text_with_gemini checks on entry.
+    os.environ["SKIP_GEMINI"] = "1"
 
     try:
         success = run_pipeline_no_cleanup()
     finally:
-        # Restore
         os.remove = orig_os_remove
-        shutil.rmtree = original_func
+        shutil.rmtree = orig_rmtree
+        os.environ.pop("SKIP_GEMINI", None)
 
     if not success:
         sys.exit(1)
 
-    # Print final data.json summary
+    # Remove intermediate PNGs (cairosvg renders + debug visualizations) —
+    # they're only needed during detection.
+    removed = 0
+    for root, _dirs, files in os.walk("files"):
+        for name in files:
+            if name.lower().endswith(".png"):
+                orig_os_remove(os.path.join(root, name))
+                removed += 1
+    if removed:
+        print(f"\n🧹 Removed {removed} intermediate PNG(s) from files/")
+
     if os.path.exists("data.json"):
         with open("data.json", "r") as f:
             data = json.load(f)
@@ -116,4 +87,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

@@ -189,31 +189,6 @@ def flatten_svg_via_png(input_svg: str, output_svg: str) -> bool:
         return False
 
 
-def compare_branch_results(results_no_slab: dict, results_with_slab: dict) -> dict:
-    """
-    Compare results between no slab band and with slab band branches.
-    Calculate the difference for each detection type.
-    """
-    difference = {}
-
-    # Get all keys from both result sets
-    all_keys = set(results_no_slab.keys()) | set(results_with_slab.keys())
-
-    for key in all_keys:
-        no_slab_val = results_no_slab.get(key, 0)
-        with_slab_val = results_with_slab.get(key, 0)
-        diff = with_slab_val - no_slab_val
-
-        difference[key] = {
-            "no_slab_band": no_slab_val,
-            "with_slab_band": with_slab_val,
-            "difference": diff,
-            "change": "increased" if diff > 0 else ("decreased" if diff < 0 else "no change")
-        }
-
-    return difference
-
-
 # Helper function to run a single step
 def run_single_step(step_name: str, step_file: str = None):
     """Run a single processing step and return success status"""
@@ -284,8 +259,11 @@ def run_detection_steps_for_branch(branch_name: str, source_svg: str, output_pre
     # Copy source SVG to Step3.svg so Steps 4-10 use the correct input
     step3_path = "files/Step3.svg"
     try:
-        shutil.copy(source_svg, step3_path)
-        print(f"✅ Copied {source_svg} to {step3_path}")
+        if os.path.abspath(source_svg) != os.path.abspath(step3_path):
+            shutil.copy(source_svg, step3_path)
+            print(f"✅ Copied {source_svg} to {step3_path}")
+        else:
+            print(f"✅ Using {step3_path} in place (source==dest)")
     except Exception as e:
         print(f"❌ Failed to copy source SVG: {e}")
         return False, {}
@@ -329,7 +307,8 @@ def run_detection_steps_for_branch(branch_name: str, source_svg: str, output_pre
         'files/tempData/alumBeam13.json': ('alumBeam13', 'alumBeam13'),
         'files/tempData/alumBeam14.json': ('alumBeam14', 'alumBeam14'),
         'files/tempData/alumBeam16.json': ('alumBeam16', 'alumBeam16'),
-        'files/tempData/alumBeam18.json': ('alumBeam18', 'alumBeam18')
+        'files/tempData/alumBeam18.json': ('alumBeam18', 'alumBeam18'),
+        'files/tempData/alumBeam20.json': ('alumBeam20', 'alumBeam20')
     }
 
     for json_file, (result_key, json_field) in json_files.items():
@@ -352,66 +331,9 @@ def run_detection_steps_for_branch(branch_name: str, source_svg: str, output_pre
     return True, step_counts
 
 
-def save_json_results_for_comparison(branch_name: str):
-    """
-    Save JSON detection results to a branch-specific directory for later comparison.
-    This allows us to compare no_slab_band vs with_slab_band results.
-    """
-    import shutil
-
-    temp_data = "files/tempData"
-    branch_dir = f"{temp_data}/{branch_name}"
-
-    # Create branch directory
-    os.makedirs(branch_dir, exist_ok=True)
-
-    # Copy all JSON files to branch directory
-    json_files = [
-        "x-shores.json",
-        "square-shores.json",
-        "pinkFrames.json",
-        "greenFrames.json",
-        "orangeFrames.json"
-    ]
-
-    for json_file in json_files:
-        src = f"{temp_data}/{json_file}"
-        dst = f"{branch_dir}/{json_file}"
-        if os.path.exists(src):
-            shutil.copy(src, dst)
-
-    print(f"  ✅ Saved {branch_name} JSON results to {branch_dir}")
-
-
 def save_branch_results(branch_name: str, step_counts: dict, data: dict):
-    """Save branch results to data.json and copy output files"""
-    import shutil
-
-    # Note: We don't store individual branch results here anymore
-    # The main pipeline stores step_results (no slab) and slab_band (with slab) directly
-
-    # Copy Step11.svg to branch-specific file
-    step11_source = "files/Step11.svg"
-    step11_dest = f"files/Step11_{branch_name}.svg"
-
-    if os.path.exists(step11_source):
-        try:
-            shutil.copy(step11_source, step11_dest)
-            print(f"✅ Saved {step11_dest}")
-        except Exception as e:
-            print(f"⚠️  Could not save {step11_dest}: {e}")
-
-    # Copy Step11-results.png to branch-specific file
-    png_source = "files/Step11-results.png"
-    png_dest = f"files/Step11_{branch_name}-results.png"
-
-    if os.path.exists(png_source):
-        try:
-            shutil.copy(png_source, png_dest)
-            print(f"✅ Saved {png_dest}")
-        except Exception as e:
-            print(f"⚠️  Could not save {png_dest}: {e}")
-
+    """No-op kept for call-site compatibility — slab branching is disabled, so
+    Step11.svg is the only artifact and Step13 reads it directly."""
     return data
 
 
@@ -419,11 +341,8 @@ def save_branch_results(branch_name: str, step_counts: dict, data: dict):
 def run_pipeline_with_logging(upload_id: str):
     """Run the processing pipeline with logging and detailed error tracking.
 
-    This pipeline runs TWO branches after Step 3:
-    1. NO SLAB BAND: Uses Step3.svg directly
-    2. WITH SLAB BAND: Uses Step4.svg (black elements on top)
-
-    Both branches run Steps 4-10 and produce separate results.
+    Runs Steps 1-3 then detection (Steps 5-11) against the no-slab-band SVG.
+    The with-slab-band branch is currently disabled.
     """
     import sys
     import os
@@ -466,29 +385,9 @@ def run_pipeline_with_logging(upload_id: str):
         print(f"❌ Pipeline failed at {failed_step}: {error_details}")
         return False, failed_step, error_details
 
-    # Save a backup of Step3.svg (no slab band version)
-    step3_original = "files/Step3.svg"
-    step3_no_slab = "files/Step3_no_slab_band.svg"
-
-    try:
-        shutil.copy(step3_original, step3_no_slab)
-        print(f"✅ Saved backup: {step3_no_slab}")
-    except Exception as e:
-        print(f"⚠️  Could not backup Step3.svg: {e}")
-
-    # Phase 2: Create slab band version
+    # Phase 2: Run detection (Steps 5-11) on Step3.svg
     print(f"\n{'='*60}")
-    print("📋 PHASE 2: Creating slab band version")
-    print(f"{'='*60}")
-
-    success = run_single_step("Step4")
-    if not success:
-        print("⚠️  Step4 failed, continuing with no slab band only")
-        # Continue with just the no slab band version
-
-    # Phase 3: Run detection for NO SLAB BAND branch
-    print(f"\n{'='*60}")
-    print("📋 PHASE 3A: Running detection pipeline (NO SLAB BAND)")
+    print("📋 PHASE 2: Running detection pipeline")
     print(f"{'='*60}")
 
     # Load existing data.json
@@ -499,100 +398,26 @@ def run_pipeline_with_logging(upload_id: str):
     else:
         data = {}
 
-    success_no_slab, counts_no_slab = run_detection_steps_for_branch(
+    success_detection, counts_detection = run_detection_steps_for_branch(
         "no_slab_band",
-        step3_no_slab,
+        "files/Step3.svg",
         ""
     )
 
-    if success_no_slab:
-        data = save_branch_results("no_slab_band", counts_no_slab, data)
-        successful_steps += 7  # Steps 4-10
-
-        # Save no_slab_band JSON results for later comparison
-        save_json_results_for_comparison("no_slab_band")
+    if success_detection:
+        data = save_branch_results("no_slab_band", counts_detection, data)
+        successful_steps += 7  # Steps 5-11
     else:
-        print("❌ No slab band detection failed")
-        return False, "detection_no_slab_band", "Detection pipeline failed"
+        print("❌ Detection failed")
+        return False, "detection", "Detection pipeline failed"
 
-    # Phase 4: Run detection for WITH SLAB BAND branch (if available)
-    step3_slab = "files/Step4.svg"
-
-    if os.path.exists(step3_slab):
-        print(f"\n{'='*60}")
-        print("📋 PHASE 3B: Running detection pipeline (WITH SLAB BAND)")
-        print(f"{'='*60}")
-
-        # NOTE: No explicit SVG→PNG→SVG flattening needed!
-        # Steps 4-10 already convert SVG→PNG internally using cairosvg for OpenCV processing.
-        # When cairosvg renders the SVG to PNG, layers are automatically flattened,
-        # and the black elements appended at the end render ON TOP.
-        print(f"\n📝 Using slab band SVG directly (flattening happens during detection)")
-        print(f"   Source: {step3_slab}")
-
-        success_with_slab, counts_with_slab = run_detection_steps_for_branch(
-            "with_slab_band",
-            step3_slab,
-            "slab_"
-        )
-
-        if success_with_slab:
-            data = save_branch_results("with_slab_band", counts_with_slab, data)
-            successful_steps += 7  # Steps 4-10 again
-        else:
-            print("⚠️  With slab band detection failed, but no slab band succeeded")
-    else:
-        print("⚠️  Slab band SVG not found, skipping slab band detection")
-        counts_with_slab = {}
-
-    # Use the no_slab_band results as the primary step_results
-    data["step_results"] = counts_no_slab
-
-    # Keep slab_band and under_slab_band in data.json for internal analysis
-    # but don't send to database
-    if counts_with_slab:
-        data["slab_band"] = counts_with_slab
-
-        # Print comparison summary
-        print(f"\n{'='*60}")
-        print("📊 RESULTS COMPARISON (for analysis only)")
-        print(f"{'='*60}")
-        print(f"\n{'Detection Type':<30} {'No Slab':<10} {'With Slab':<12} {'Hidden':<8}")
-        print("-" * 60)
-
-        for key in counts_no_slab.keys():
-            no_slab = counts_no_slab.get(key, 0)
-            with_slab = counts_with_slab.get(key, 0)
-            hidden = no_slab - with_slab  # Elements covered by slab
-            hidden_str = str(hidden) if hidden > 0 else "0"
-            print(f"{key:<30} {no_slab:<10} {with_slab:<12} {hidden_str:<8}")
-
-        print("-" * 60)
-        total_no_slab = sum(counts_no_slab.values())
-        total_with_slab = sum(counts_with_slab.values())
-        total_hidden = total_no_slab - total_with_slab
-        hidden_str = str(total_hidden) if total_hidden > 0 else "0"
-        print(f"{'TOTAL':<30} {total_no_slab:<10} {total_with_slab:<12} {hidden_str:<8}")
-        print("=" * 60)
-        print("Note: Slab band data kept in data.json for internal use only")
-
-        # Mark elements hidden by slab band with * in the final SVG
-        print(f"\n{'='*60}")
-        print("📝 Marking slab band differences in SVG")
-        print(f"{'='*60}")
-        try:
-            from processors.Step12 import run_step12 as run_step12_slab
-            run_step12_slab()
-        except Exception as e:
-            print(f"⚠️  Could not mark slab band differences: {e}")
-    else:
-        print("⚠️  No slab band results available")
+    data["step_results"] = counts_detection
 
     # Write data.json
     with open(data_file, 'w') as f:
         json.dump(data, f, indent=4)
 
-    print(f"\n✅ Both branches completed!")
+    print(f"\n✅ Detection completed!")
     print(f"   Results saved to data.json")
 
     # Summary
@@ -600,15 +425,9 @@ def run_pipeline_with_logging(upload_id: str):
     print(f"📊 PIPELINE SUMMARY")
     print(f"{'='*60}")
 
-    # Print results
     if 'step_results' in data:
-        print(f"\n📋 Regular Results (step_results):")
+        print(f"\n📋 Results (step_results):")
         for key, val in data['step_results'].items():
-            print(f"   - {key}: {val}")
-
-    if 'slab_band' in data:
-        print(f"\n📋 Slab Band Results (slab_band):")
-        for key, val in data['slab_band'].items():
             print(f"   - {key}: {val}")
 
     print(f"\n🎉 Pipeline completed successfully!")
@@ -661,54 +480,20 @@ def run_pipeline_with_logging(upload_id: str):
         if 'svg_urls' not in data:
             data['svg_urls'] = {}
 
-        # Per-run suffix so each upload has a unique filename (avoids CDN/browser cache)
-        upload_suffix = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-        def _upload_with_unique_name(src_path: str):
-            """Copy src to a timestamped name, upload that copy, then remove the copy."""
-            if not os.path.exists(src_path):
-                return None
-            base, ext = os.path.splitext(os.path.basename(src_path))
-            unique_name = f"{base}_{upload_suffix}{ext}"
-            unique_path = os.path.join(os.path.dirname(src_path), unique_name)
-            try:
-                shutil.copy2(src_path, unique_path)
-                return upload_svg_to_api(unique_path)
-            finally:
-                if os.path.exists(unique_path):
-                    try:
-                        os.remove(unique_path)
-                    except Exception:
-                        pass
-
-        # Upload no slab band version
-        svg_no_slab = "files/Step11_no_slab_band.svg"
-        if os.path.exists(svg_no_slab):
-            svg_url = _upload_with_unique_name(svg_no_slab)
+        # upload_svg_to_api() already stamps a per-second timestamp into the
+        # remote FTP filename, so we don't need to rename the local file.
+        svg_path_to_upload = "files/Step11.svg"
+        if os.path.exists(svg_path_to_upload):
+            svg_url = upload_svg_to_api(svg_path_to_upload)
             if svg_url:
-                data['svg_urls']['step10_no_slab_band'] = svg_url
-                data['svg_urls']['step10'] = svg_url  # Backwards compatibility
-                print(f"✅ Step11_no_slab_band.svg uploaded: {svg_url}")
+                data['svg_urls']['step10'] = svg_url
+                print(f"✅ {os.path.basename(svg_path_to_upload)} uploaded: {svg_url}")
             else:
                 upload_ok = False
-                print("⚠️  Failed to upload Step11_no_slab_band.svg")
+                print(f"⚠️  Failed to upload {os.path.basename(svg_path_to_upload)}")
         else:
             upload_ok = False
-            print(f"⚠️  {svg_no_slab} not found")
-
-        # Upload with slab band version
-        svg_with_slab = "files/Step11_with_slab_band.svg"
-        if os.path.exists(svg_with_slab):
-            svg_url = _upload_with_unique_name(svg_with_slab)
-            if svg_url:
-                data['svg_urls']['step10_with_slab_band'] = svg_url
-                print(f"✅ Step11_with_slab_band.svg uploaded: {svg_url}")
-            else:
-                upload_ok = False
-                print("⚠️  Failed to upload Step11_with_slab_band.svg")
-        else:
-            upload_ok = False
-            print(f"⚠️  {svg_with_slab} not found")
+            print(f"⚠️  {svg_path_to_upload} not found")
 
         # Re-load data.json so any fields written by Step13/Step13b (e.g.
         # container_glyphs, container_glyphs_detail, crossbar_totals, frame_totals)
@@ -740,9 +525,61 @@ def run_pipeline_with_logging(upload_id: str):
     else:
         print(f"⚠️  Step14 failed, but pipeline will continue")
 
-    # ── Clean up files/ ──
+    # Step16: group same-color frames by shared axis, write per-group cropped SVGs
+    try:
+        print(f"\n{'='*60}")
+        print("📋 Running Step16 (frame grouping + per-group SVGs)")
+        print(f"{'='*60}")
+        from processors.Step16 import run_step16
+        if run_step16():
+            print("✅ Step16 completed")
+        else:
+            print("⚠️  Step16 failed, continuing...")
+    except Exception as e:
+        print(f"⚠️  Error in Step16: {e}")
+
+    # Step17: per-group beam-bundle + alum-rail detection, synthesize wood beams
+    try:
+        print(f"\n{'='*60}")
+        print("📋 Running Step17 (beam bundles + wood beams)")
+        print(f"{'='*60}")
+        from processors.Step17 import run_step17
+        if run_step17():
+            print("✅ Step17 completed")
+        else:
+            print("⚠️  Step17 failed, continuing...")
+    except Exception as e:
+        print(f"⚠️  Error in Step17: {e}")
+
+    # ── Archive intermediate files to ~/Desktop/OUTPUT/<TIMESTAMP>/ then clean up ──
     try:
         files_dir = "files"
+
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        archive_dir = os.path.expanduser(f"~/Desktop/OUTPUT/{timestamp}")
+        os.makedirs(archive_dir, exist_ok=True)
+        print(f"  Archive: {archive_dir}")
+
+        archived_count = 0
+        for f in os.listdir(files_dir):
+            # PNGs are intermediate-only (cairosvg-rendered for OpenCV detection
+            # and debug -results.png visualizations). Skip archiving them.
+            if f.lower().endswith(".png"):
+                continue
+            src = os.path.join(files_dir, f)
+            dst = os.path.join(archive_dir, f)
+            if os.path.isdir(src):
+                shutil.copytree(src, dst, dirs_exist_ok=True)
+            else:
+                shutil.copy2(src, dst)
+            archived_count += 1
+
+        if os.path.exists("data.json"):
+            shutil.copy2("data.json", os.path.join(archive_dir, "data.json"))
+            archived_count += 1
+
+        print(f"  Archived {archived_count} files/directories")
+
         if not upload_ok:
             print(f"\n⚠️  SVG upload was not confirmed — skipping wipe of files/ so you can retry")
         else:
@@ -1075,18 +912,12 @@ async def process_ai_takeoff_sync(upload_id: str, company: str = None, jobsite: 
                                         print(f"\n📝 Updating database with SVG URLs...")
                                         from api.cloudinary_manager import update_svg_in_database
 
-                                        # Update with no slab band SVG (primary)
-                                        svg_url_no_slab = data_updated.get('svg_urls', {}).get('step10_no_slab_band')
-                                        if svg_url_no_slab:
-                                            if update_svg_in_database(tracking_url, svg_url_no_slab):
-                                                print(f"✅ No slab band SVG URL saved to database")
+                                        svg_url = data_updated.get('svg_urls', {}).get('step10')
+                                        if svg_url:
+                                            if update_svg_in_database(tracking_url, svg_url):
+                                                print(f"✅ SVG URL saved to database")
                                             else:
-                                                print(f"⚠️  Failed to update no slab band SVG URL in database")
-
-                                        # Also update with slab band SVG if available
-                                        svg_url_with_slab = data_updated.get('svg_urls', {}).get('step10_with_slab_band')
-                                        if svg_url_with_slab:
-                                            print(f"✅ With slab band SVG URL: {svg_url_with_slab}")
+                                                print(f"⚠️  Failed to update SVG URL in database")
                                     else:
                                         print(f"⚠️  No tracking_url found - cannot update SVG in database")
                                 except Exception as svg_update_error:

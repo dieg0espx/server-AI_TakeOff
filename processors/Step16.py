@@ -38,8 +38,11 @@ INPUT_SVG = BASE_DIR / "files" / "Step11.svg"
 OUTPUT_SVG = BASE_DIR / "files" / "Step16.svg"
 GROUPS_DIR = BASE_DIR / "files" / "groups"
 
-# Padding around each group bbox when cropping (in SVG user units)
-GROUP_CROP_PADDING = 20.0
+# Padding around each group bbox when cropping (in SVG user units).
+# Sized so paired aluminum-beam rails sitting just outside the frame bbox
+# (e.g. the second rail of an alumBeam pair) stay inside the viewBox so
+# Step17 can pair them and stamp wood beams across the full region.
+GROUP_CROP_PADDING = 100.0
 
 
 def load_frames():
@@ -313,7 +316,7 @@ FRAME_PREFIX = {
 # Aluminum beam stroke colors (from Step11.py mapping) + gray annotation color.
 KEEP_STROKES = {
     "#4e4e4e",
-    "#FFD400", "#ffffff", "#1D915C", "#9CFF9C", "#F54927", "#FF6EC7",
+    "#A020F0", "#FFD400", "#ffffff", "#1D915C", "#9CFF9C", "#F54927", "#FF6EC7",
     "#FFA805", "#00C8FF", "#B52FC4", "#00FFFF", "#FFBC85", "#E6E600",
     "#4084FF",
 }
@@ -336,6 +339,121 @@ def _element_stroke(el):
         return m.group(1).strip().lower()
     s = el.get("stroke", "") or ""
     return s.strip().lower()
+
+
+# Aluminum-rail stroke colors only — recoloring these is the goal. We don't
+# touch shores or container frames.
+ALUM_STROKES_LOWER = {
+    "#a020f0", "#ffd400", "#ffffff", "#1d915c", "#9cff9c", "#f54927",
+    "#ff6ec7", "#ffa805", "#00c8ff", "#b52fc4", "#00ffff", "#ffbc85",
+    "#e6e600", "#4084ff",
+}
+
+# How far outside the group's frame bbox an alum-rail's midpoint may sit and
+# still count as "this group's rail". Matches Step17's GROUP_BBOX_PAD so both
+# steps agree on group membership.
+ALUM_GROUP_TOL = 40.0
+
+_MATRIX_RE = re.compile(
+    r"matrix\(\s*([-\d.]+)[,\s]+([-\d.]+)[,\s]+([-\d.]+)[,\s]+([-\d.]+)[,\s]+([-\d.]+)[,\s]+([-\d.]+)\s*\)"
+)
+_H_ABS_RE = re.compile(r'\bM\s*(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\s*H\s*(-?\d+(?:\.\d+)?)\b')
+_V_ABS_RE = re.compile(r'\bM\s*(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\s*V\s*(-?\d+(?:\.\d+)?)\b')
+_H_REL_RE = re.compile(r'\bm\s*(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\s*h\s*(-?\d+(?:\.\d+)?)\b')
+_V_REL_RE = re.compile(r'\bm\s*(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\s*v\s*(-?\d+(?:\.\d+)?)\b')
+
+
+_PATH_M_RE = re.compile(r"[Mm]\s*(-?\d+(?:\.\d+)?)[,\s]+(-?\d+(?:\.\d+)?)")
+
+
+def _path_midpoint_local(path_d):
+    """Best-effort midpoint of a path in its local frame: average of the
+    first H/V run's endpoints if there is one, otherwise the first `M`/`m`
+    coordinate (close enough for membership tests)."""
+    m = _H_ABS_RE.search(path_d)
+    if m:
+        x1, y1, x2 = float(m.group(1)), float(m.group(2)), float(m.group(3))
+        return (x1 + x2) / 2, y1
+    m = _V_ABS_RE.search(path_d)
+    if m:
+        x1, y1, y2 = float(m.group(1)), float(m.group(2)), float(m.group(3))
+        return x1, (y1 + y2) / 2
+    m = _H_REL_RE.search(path_d)
+    if m:
+        sx, sy, dx = float(m.group(1)), float(m.group(2)), float(m.group(3))
+        return sx + dx / 2, sy
+    m = _V_REL_RE.search(path_d)
+    if m:
+        sx, sy, dy = float(m.group(1)), float(m.group(2)), float(m.group(3))
+        return sx, sy + dy / 2
+    # Fall back to the first move-to coordinate.
+    m = _PATH_M_RE.search(path_d)
+    if m:
+        return float(m.group(1)), float(m.group(2))
+    return None
+
+
+def _apply_matrix(mx, x, y):
+    a, b, c, d, tx, ty = mx
+    return a * x + c * y + tx, b * x + d * y + ty
+
+
+def _recolor_out_of_group_rails(root, bounds, pad=0.0):
+    """Walk the tree; for every <path> with an alum-beam stroke, compute its
+    world-coord midpoint and, if it falls outside (bounds ± pad), rewrite the
+    stroke to #4e4e4e. Bounds = (x_min, y_min, x_max, y_max)."""
+    x_min, y_min, x_max, y_max = bounds
+    x_min -= pad; y_min -= pad
+    x_max += pad; y_max += pad
+
+    # Build parent-map and accumulated-transform map (root → parent of node).
+    parent_of = {c: p for p in root.iter() for c in p}
+    accum = {root: (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)}
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        par_xform = accum[node]
+        for child in list(node):
+            m = _MATRIX_RE.search(child.get("transform", "") or "")
+            if m:
+                own = tuple(float(m.group(i)) for i in range(1, 7))
+                a1,b1,c1,d1,e1,f1 = par_xform
+                a2,b2,c2,d2,e2,f2 = own
+                xform = (a1*a2+c1*b2, b1*a2+d1*b2,
+                         a1*c2+c1*d2, b1*c2+d1*d2,
+                         a1*e2+c1*f2+e1, b1*e2+d1*f2+f1)
+            else:
+                xform = par_xform
+            accum[child] = xform
+            stack.append(child)
+
+    recolored = 0
+    for el in root.iter():
+        if _local(el.tag) != "path":
+            continue
+        stroke = _element_stroke(el)
+        if stroke not in ALUM_STROKES_LOWER:
+            continue
+        mid = _path_midpoint_local(el.get("d", ""))
+        if mid is None:
+            continue
+        # parent's accumulated transform applies to el's local coords
+        par = parent_of.get(el)
+        xform = accum.get(par, (1.0, 0.0, 0.0, 1.0, 0.0, 0.0))
+        wx, wy = _apply_matrix(xform, mid[0], mid[1])
+        if x_min <= wx <= x_max and y_min <= wy <= y_max:
+            continue  # in-group — leave as alum color
+
+        # Out of group — rewrite stroke to #4e4e4e.
+        style = el.get("style", "") or ""
+        new_style = _STROKE_RE.sub("stroke:#4e4e4e", style)
+        if new_style != style:
+            el.set("style", new_style)
+            recolored += 1
+        elif el.get("stroke"):
+            el.set("stroke", "#4e4e4e")
+            recolored += 1
+    return recolored
 
 
 def _filter_floorplan_group(g_el):
@@ -430,7 +548,35 @@ def crop_svg_to_bounds(svg_text, bounds, cand, padding=GROUP_CROP_PADDING):
     for el in to_remove:
         root.remove(el)
 
+    # Recolor alum-beam rails outside this group's bbox back to #4e4e4e —
+    # they belong to a different group, so they shouldn't read as "alum" in
+    # this group's view. Membership uses the unpadded frame bbox + a small
+    # tolerance so rails sitting right at the frame edge still count.
+    _recolor_out_of_group_rails(root, bounds, pad=ALUM_GROUP_TOL)
+
     return ET.tostring(root, encoding="unicode")
+
+
+_XML_DECL = '<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n'
+_SVG_PREFIX_TAG_RE = re.compile(r"(</?)svg:([A-Za-z][\w-]*)")
+_BG_RECT_RE = re.compile(r'\s*<rect\s+id="background"[^/>]*/>\s*', re.IGNORECASE)
+
+
+def _make_figma_compatible(svg_text: str) -> str:
+    """Post-process a cropped SVG so Figma can open it: drop the `svg:` element
+    prefix, swap `xmlns:svg` for the default `xmlns`, remove the oversized
+    background rect, and prepend an XML declaration if missing."""
+    svg_text = _SVG_PREFIX_TAG_RE.sub(r"\1\2", svg_text)
+    svg_text = svg_text.replace(
+        'xmlns:svg="http://www.w3.org/2000/svg"',
+        'xmlns="http://www.w3.org/2000/svg"',
+        1,
+    )
+    svg_text = _BG_RECT_RE.sub("\n", svg_text, count=1)
+    if not svg_text.lstrip().startswith("<?xml"):
+        svg_text = _XML_DECL + svg_text
+    return svg_text
+
 
 
 def write_group_svgs(svg_text, kept_groups, groups_dir):
@@ -439,6 +585,7 @@ def write_group_svgs(svg_text, kept_groups, groups_dir):
     written = 0
     for i, cand in enumerate(kept_groups, start=1):
         cropped = crop_svg_to_bounds(svg_text, cand["bounds"], cand)
+        cropped = _make_figma_compatible(cropped)
         out_path = groups_dir / f"G{i}.svg"
         try:
             with open(out_path, "w", encoding="utf-8") as f:

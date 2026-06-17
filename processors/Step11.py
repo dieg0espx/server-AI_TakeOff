@@ -280,56 +280,205 @@ def convert_svg_to_png(svg_path, png_path):
         traceback.print_exc()
         return False
 
+_DIM_H_ABS = re.compile(r'\bM\s*(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\s*H\s*(-?\d+(?:\.\d+)?)\b')
+_DIM_V_ABS = re.compile(r'\bM\s*(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\s*V\s*(-?\d+(?:\.\d+)?)\b')
+_DIM_H_REL = re.compile(r'\bm\s*(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\s*h\s*(-?\d+(?:\.\d+)?)\b')
+_DIM_V_REL = re.compile(r'\bm\s*(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\s*v\s*(-?\d+(?:\.\d+)?)\b')
+
+
+def _candidate_segment(path_d, target_dimension, tolerance):
+    """If path_d has an H/V run matching target_dimension (±tolerance), return
+    (orient, x1, y1, x2, y2) in the path's *local* coordinate frame, else None.
+    Only the first matching run is returned."""
+    def matches(v):
+        return abs(v - target_dimension) <= tolerance
+
+    m = _DIM_H_ABS.search(path_d)
+    if m:
+        x1, y1, x2 = float(m.group(1)), float(m.group(2)), float(m.group(3))
+        if matches(abs(x2 - x1)):
+            return ('h', min(x1, x2), y1, max(x1, x2), y1)
+    m = _DIM_V_ABS.search(path_d)
+    if m:
+        x1, y1, y2 = float(m.group(1)), float(m.group(2)), float(m.group(3))
+        if matches(abs(y2 - y1)):
+            return ('v', x1, min(y1, y2), x1, max(y1, y2))
+    m = _DIM_H_REL.search(path_d)
+    if m:
+        sx, sy, dx = float(m.group(1)), float(m.group(2)), float(m.group(3))
+        if matches(abs(dx)):
+            return ('h', min(sx, sx + dx), sy, max(sx, sx + dx), sy)
+    m = _DIM_V_REL.search(path_d)
+    if m:
+        sx, sy, dy = float(m.group(1)), float(m.group(2)), float(m.group(3))
+        if matches(abs(dy)):
+            return ('v', sx, min(sy, sy + dy), sx, max(sy, sy + dy))
+    return None
+
+
+_MATRIX_RE = re.compile(
+    r"matrix\(\s*([-\d.]+)[,\s]+([-\d.]+)[,\s]+([-\d.]+)[,\s]+([-\d.]+)[,\s]+([-\d.]+)[,\s]+([-\d.]+)\s*\)"
+)
+
+
+def _build_parent_and_transform_maps(svg_content):
+    """Parse the SVG once via ElementTree; return (parent_of, accumulated_transform).
+    `accumulated_transform[el]` is the composed matrix from root → el's *parent*
+    (so applying it to a child's local coords yields world coords)."""
+    import xml.etree.ElementTree as ET
+    try:
+        root = ET.fromstring(svg_content)
+    except ET.ParseError:
+        return None, None
+
+    parent_of = {child: parent for parent in root.iter() for child in parent}
+
+    def parse_matrix(el):
+        m = _MATRIX_RE.search(el.get('transform', '') or '')
+        if not m:
+            return None
+        return tuple(float(m.group(i)) for i in range(1, 7))
+
+    def compose(A, B):
+        # A then B → (a,b,c,d,e,f) result
+        a1, b1, c1, d1, e1, f1 = A
+        a2, b2, c2, d2, e2, f2 = B
+        return (
+            a1*a2 + c1*b2,
+            b1*a2 + d1*b2,
+            a1*c2 + c1*d2,
+            b1*c2 + d1*d2,
+            a1*e2 + c1*f2 + e1,
+            b1*e2 + d1*f2 + f1,
+        )
+
+    IDENTITY = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+    accumulated = {root: IDENTITY}
+    # BFS to compose transforms down the tree
+    queue = [root]
+    while queue:
+        node = queue.pop()
+        parent_xform = accumulated[node]
+        for child in list(node):
+            own = parse_matrix(child)
+            xform = compose(parent_xform, own) if own else parent_xform
+            accumulated[child] = xform
+            queue.append(child)
+
+    # Map by id for fast lookup from raw-regex matches
+    by_id = {}
+    for el in root.iter():
+        eid = el.get('id', '')
+        if eid:
+            # parent's accumulated transform is what applies to el's local coords
+            par = parent_of.get(el)
+            if par is not None and par in accumulated:
+                by_id[eid] = accumulated[par]
+            else:
+                by_id[eid] = IDENTITY
+    return parent_of, by_id
+
+
+def _apply_matrix(mx, x, y):
+    a, b, c, d, tx, ty = mx
+    return a * x + c * y + tx, b * x + d * y + ty
+
+
 def mark_alum_beams_by_dimension(svg_content, target_dimension, stroke_color, tolerance=0):
-    """
-    Turn the stroke color of any <path> whose width or height matches target_dimension.
-    Returns (updated_svg_content, changed_count).
+    """Turn the stroke color of any <path> whose H/V run matches target_dimension
+    AND has at least one parallel same-dimension partner rail nearby. Returns
+    (updated_svg_content, changed_count).
+
+    Real aluminum beams are always drawn as TWO parallel rails. A lone matching
+    line is almost always a dimension/construction line that just happens to
+    share a beam's nominal length — recoloring it gives a misleading SVG.
     """
     path_pattern = re.compile(r'<path\b[^>]*>')
-    id_pattern = re.compile(r'\bid="([^"]+)"')
     style_pattern = re.compile(r'\bstyle="([^"]*)"')
     d_pattern = re.compile(r'\bd="([^"]*)"')
+    id_pattern = re.compile(r'\bid="([^"]+)"')
 
-    def has_target_dimension(path_d):
-        def matches(value):
-            return abs(value - target_dimension) <= tolerance
+    # Build ancestor-transform map so we can convert local path coords → world.
+    _parent_of, xform_by_id = _build_parent_and_transform_maps(svg_content)
 
-        # Absolute commands
-        m_h_abs = re.search(r'\bM\s*(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\s*H\s*(-?\d+(?:\.\d+)?)\b', path_d)
-        if m_h_abs and matches(abs(float(m_h_abs.group(3)) - float(m_h_abs.group(1)))):
-            return True
+    # Pass 1: collect candidate rails (geometry + fill/z guards).
+    candidates = []  # list of (path_id, orient, x1, y1, x2, y2)
+    for m in path_pattern.finditer(svg_content):
+        tag = m.group(0)
+        d_m = d_pattern.search(tag)
+        st_m = style_pattern.search(tag)
+        id_m = id_pattern.search(tag)
+        if not (d_m and st_m and id_m):
+            continue
 
-        m_v_abs = re.search(r'\bM\s*(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\s*V\s*(-?\d+(?:\.\d+)?)\b', path_d)
-        if m_v_abs and matches(abs(float(m_v_abs.group(3)) - float(m_v_abs.group(2)))):
-            return True
+        path_d = d_m.group(1)
+        seg = _candidate_segment(path_d, target_dimension, tolerance)
+        if seg is None:
+            continue
 
-        # Relative commands
-        m_h_rel = re.search(r'\bm\s*-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?\s*h\s*(-?\d+(?:\.\d+)?)\b', path_d)
-        if m_h_rel and matches(abs(float(m_h_rel.group(1)))):
-            return True
+        style_value = st_m.group(1)
+        fill_m = re.search(r'fill\s*:\s*([^;"]+)', style_value, re.IGNORECASE)
+        fill_val = fill_m.group(1).strip().lower() if fill_m else ''
+        if fill_val and fill_val != 'none':
+            continue
+        if re.search(r'\bz\b', path_d, re.IGNORECASE):
+            continue
 
-        m_v_rel = re.search(r'\bm\s*-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?\s*v\s*(-?\d+(?:\.\d+)?)\b', path_d)
-        if m_v_rel and matches(abs(float(m_v_rel.group(1)))):
-            return True
+        path_id = id_m.group(1)
+        orient, lx1, ly1, lx2, ly2 = seg
+        # Map to world coords via ancestor transform.
+        mx = xform_by_id.get(path_id) if xform_by_id else None
+        if mx is not None:
+            wx1, wy1 = _apply_matrix(mx, lx1, ly1)
+            wx2, wy2 = _apply_matrix(mx, lx2, ly2)
+        else:
+            wx1, wy1, wx2, wy2 = lx1, ly1, lx2, ly2
+        candidates.append((
+            path_id, orient,
+            min(wx1, wx2), min(wy1, wy2),
+            max(wx1, wx2), max(wy1, wy2),
+        ))
 
+    # Pass 2: keep only candidates that have a same-orientation parallel
+    # partner (different perpendicular coord, overlapping parallel extent).
+    EXTENT_TOL = 2.0
+    OFFSET_TOL = 1.0  # essentially-same line → not a partner
+
+    def has_partner(c):
+        _id_c, o_c, cx1, cy1, cx2, cy2 = c
+        for d in candidates:
+            if d is c:
+                continue
+            _id_d, o_d, dx1, dy1, dx2, dy2 = d
+            if o_d != o_c:
+                continue
+            if o_c == 'h':
+                if abs(cy1 - dy1) < OFFSET_TOL:
+                    continue
+                if min(cx2, dx2) - max(cx1, dx1) > EXTENT_TOL:
+                    return True
+            else:
+                if abs(cx1 - dx1) < OFFSET_TOL:
+                    continue
+                if min(cy2, dy2) - max(cy1, dy1) > EXTENT_TOL:
+                    return True
         return False
+
+    keepers = {c[0] for c in candidates if has_partner(c)}
 
     changed_count = 0
 
     def replace_path(match):
         nonlocal changed_count
         tag = match.group(0)
-        d_match = d_pattern.search(tag)
-        style_match = style_pattern.search(tag)
-
-        if not d_match or not style_match:
+        id_m = id_pattern.search(tag)
+        st_m = style_pattern.search(tag)
+        if not (id_m and st_m):
+            return tag
+        if id_m.group(1) not in keepers:
             return tag
 
-        path_d = d_match.group(1)
-        if not has_target_dimension(path_d):
-            return tag
-
-        style_value = style_match.group(1)
+        style_value = st_m.group(1)
         if f'stroke:{stroke_color}'.lower() in style_value.lower():
             return tag
 
@@ -341,7 +490,7 @@ def mark_alum_beams_by_dimension(svg_content, target_dimension, stroke_color, to
             updated_style = style_value + f';stroke:{stroke_color}'
 
         changed_count += 1
-        return tag.replace(style_match.group(0), f'style="{updated_style}"', 1)
+        return tag.replace(st_m.group(0), f'style="{updated_style}"', 1)
 
     updated_svg = path_pattern.sub(replace_path, svg_content)
     return updated_svg, changed_count
@@ -461,6 +610,7 @@ def run_step11():
 
     # Beam categories and styling rules
     beam_specs = [
+        ("alumBeam20", 1500, 1, "#A020F0"),
         ("alumBeam18", 1350, 1, "#FFD400"),
         ("alumBeam16", 1201, 1, "#ffffff"),
         ("alumBeam14", 1050, 1, "#1D915C"),

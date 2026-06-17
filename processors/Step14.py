@@ -28,6 +28,11 @@ def rewrite_text_with_gemini(extracted_text: str) -> str:
     Returns:
         Professionally rewritten text or original text if API call fails
     """
+    # Honor SKIP_GEMINI=1 for local/dev runs that shouldn't burn API quota.
+    if os.getenv('SKIP_GEMINI'):
+        print("⏭️  SKIP_GEMINI set — using extracted text as-is")
+        return extracted_text
+
     try:
         from google import genai
         from google.genai import types
