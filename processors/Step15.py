@@ -233,9 +233,15 @@ def cleanup_result_files():
             # Slab band comparison directories (will be handled separately)
         ]
 
-        # Clean up comparison directories
+        # Clean up intermediate directories left behind by the pipeline:
+        #   - tempData/  : per-step JSON sidecars (already folded into data.json)
+        #   - groups/    : per-group SVG crops + wood overlays (Step16/17 outputs)
+        #   - tempData/no_slab_band : legacy slab-band branch comparison crops
+        # All are safe to delete once data.json has been built and posted.
         comparison_dirs = [
             f"{files_dir}/tempData/no_slab_band",
+            f"{files_dir}/tempData",
+            f"{files_dir}/groups",
         ]
 
         import shutil
@@ -243,7 +249,7 @@ def cleanup_result_files():
             if os.path.exists(dir_path):
                 try:
                     shutil.rmtree(dir_path)
-                    print(f"   ✅ Deleted comparison directory: {dir_path}")
+                    print(f"   ✅ Deleted directory: {dir_path}")
                 except Exception as e:
                     print(f"   ⚠️  Could not delete {dir_path}: {e}")
 

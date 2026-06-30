@@ -722,29 +722,12 @@ def run_step13():
                 except (json.JSONDecodeError, Exception):
                     data = {}
 
-            # Store per-container detail (with path IDs)
-            data['container_glyphs_detail'] = all_summary
-
-            # Aggregate totals by container type (with crossbar/frame counts)
-            totals = {}
-            for container_id, info in all_summary.items():
-                ctype = container_id.rsplit('_', 1)[0]
-                if ctype not in totals:
-                    totals[ctype] = {"count": 0, "crossbars": {}, "frames": {}}
-                totals[ctype]["count"] += 1
-
-                cb = info.get('crossbar', 7)
-                cb_key = f"crossbar_{cb}"
-                totals[ctype]["crossbars"][cb_key] = totals[ctype]["crossbars"].get(cb_key, 0) + 1
-
-                fr = info.get('frame')
-                if fr is not None:
-                    fr_key = f"frame_{fr}"
-                    totals[ctype]["frames"][fr_key] = totals[ctype]["frames"].get(fr_key, 0) + 1
-                else:
-                    totals[ctype]["frames"]["frame_null"] = totals[ctype]["frames"].get("frame_null", 0) + 1
-
-            data['container_glyphs'] = totals
+            # Per-container detail and per-type summary used to be persisted
+            # to data.json as `container_glyphs_detail` / `container_glyphs`
+            # but they bloated the payload without being consumed downstream
+            # (Step13b just printed them and `local_test.py` only displays
+            # them in dev). The aggregate `crossbar_totals` / `frame_totals`
+            # written below cover the same information at summary level.
 
             # Aggregate overall crossbar and frame totals
             crossbar_totals = {}

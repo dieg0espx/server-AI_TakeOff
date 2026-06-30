@@ -486,7 +486,7 @@ def run_pipeline_with_logging(upload_id: str):
         if os.path.exists(svg_path_to_upload):
             svg_url = upload_svg_to_api(svg_path_to_upload)
             if svg_url:
-                data['svg_urls']['step10'] = svg_url
+                data['svg_urls']['step11'] = svg_url
                 print(f"✅ {os.path.basename(svg_path_to_upload)} uploaded: {svg_url}")
             else:
                 upload_ok = False
@@ -550,6 +550,26 @@ def run_pipeline_with_logging(upload_id: str):
             print("⚠️  Step17 failed, continuing...")
     except Exception as e:
         print(f"⚠️  Error in Step17: {e}")
+
+    # Merge Step17's wood-beam totals into data.json BEFORE the cleanup
+    # wipe below removes files/tempData. These per-size counts are read
+    # by Step15 later (out of data.json) to be posted to the database.
+    try:
+        wood_sidecar = "files/tempData/step17_wood.json"
+        if os.path.exists(wood_sidecar) and os.path.exists(data_file):
+            with open(wood_sidecar, "r") as f:
+                wood_data = json.load(f)
+            with open(data_file, "r") as f:
+                data_wood = json.load(f)
+            sr = data_wood.setdefault("step_results", {})
+            for ft, cnt in (wood_data.get("by_size_ft") or {}).items():
+                sr[f"wood_{ft}ft"] = cnt
+            with open(data_file, "w") as f:
+                json.dump(data_wood, f, indent=4)
+            print(f"✅ Wood-beam totals merged into {data_file} "
+                  f"(total={wood_data.get('total_wood_beams', 0)})")
+    except Exception as wood_err:
+        print(f"⚠️  Could not merge wood-beam totals into data.json: {wood_err}")
 
     # ── Archive intermediate files to ~/Desktop/OUTPUT/<TIMESTAMP>/ then clean up ──
     try:
@@ -912,7 +932,7 @@ async def process_ai_takeoff_sync(upload_id: str, company: str = None, jobsite: 
                                         print(f"\n📝 Updating database with SVG URLs...")
                                         from api.cloudinary_manager import update_svg_in_database
 
-                                        svg_url = data_updated.get('svg_urls', {}).get('step10')
+                                        svg_url = data_updated.get('svg_urls', {}).get('step11')
                                         if svg_url:
                                             if update_svg_in_database(tracking_url, svg_url):
                                                 print(f"✅ SVG URL saved to database")
@@ -1011,8 +1031,8 @@ async def process_ai_takeoff_sync(upload_id: str, company: str = None, jobsite: 
 
                 # Get SVG URL if available
                 svg_url = None
-                if 'svg_urls' in data_results and 'step10' in data_results['svg_urls']:
-                    svg_url = data_results['svg_urls']['step10']
+                if 'svg_urls' in data_results and 'step11' in data_results['svg_urls']:
+                    svg_url = data_results['svg_urls']['step11']
 
                 # Return result with SVG URL
                 result = {

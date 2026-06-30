@@ -21,58 +21,28 @@ def run_step13b():
         with open(data_path, 'r') as f:
             data = json.load(f)
 
-        detail = data.get('container_glyphs_detail')
-        if not detail:
-            print("⚠️  No container_glyphs_detail data found in data.json")
+        # The per-container detail used to live in `container_glyphs_detail`
+        # but was dropped from data.json (bloated the payload without being
+        # consumed downstream). Use the aggregate totals Step13 still writes.
+        crossbar_totals = data.get('crossbar_totals') or {}
+        frame_totals = data.get('frame_totals') or {}
+
+        if not crossbar_totals and not frame_totals:
+            print("⚠️  No crossbar/frame totals found in data.json")
             return True
 
-        print("\n📊 Per-Container Details")
+        print("\n📊 Crossbar & Frame Totals")
         print("=" * 60)
 
-        # Group containers by type
-        grouped = {}
-        for container_id, info in detail.items():
-            ctype = container_id.rsplit('_', 1)[0]
-            num = int(container_id.rsplit('_', 1)[1])
-            grouped.setdefault(ctype, []).append((num, container_id, info))
+        if crossbar_totals:
+            print("\n  Crossbars:")
+            for k, v in crossbar_totals.items():
+                print(f"    {k}: {v}")
 
-        for ctype in sorted(grouped.keys()):
-            label = ctype.replace('_', ' ').title()
-            containers = sorted(grouped[ctype], key=lambda x: x[0])
-            print(f"\n  {label} ({len(containers)} containers)")
-            print(f"  {'-' * 56}")
-
-            for num, container_id, info in containers:
-                crossbar = info.get('crossbar', 7)
-                frame = info.get('frame')
-                parts = [f"crossbar={crossbar}"]
-                if frame is not None:
-                    parts.append(f"frame={frame}")
-                print(f"    {container_id}: {' | '.join(parts)}")
-
-        # Totals
-        print("\n" + "=" * 60)
-        print("  TOTALS")
-        print("  " + "-" * 56)
-
-        crossbar_totals = {}
-        frame_totals = {}
-        for container_id, info in detail.items():
-            cb = info.get('crossbar', 7)
-            fr = info.get('frame')
-            crossbar_totals[cb] = crossbar_totals.get(cb, 0) + 1
-            if fr is not None:
-                frame_totals[fr] = frame_totals.get(fr, 0) + 1
-
-        print("\n  Crossbars:")
-        for val in sorted(crossbar_totals.keys()):
-            print(f"    crossbar {val}: {crossbar_totals[val]}")
-        print(f"    total: {sum(crossbar_totals.values())}")
-
-        print("\n  Frames:")
-        for val in sorted(frame_totals.keys()):
-            print(f"    frame {val}: {frame_totals[val]}")
-        print(f"    total: {sum(frame_totals.values())}")
+        if frame_totals:
+            print("\n  Frames:")
+            for k, v in frame_totals.items():
+                print(f"    {k}: {v}")
 
         print("\n" + "=" * 60)
         print("✅ Step13b completed")
