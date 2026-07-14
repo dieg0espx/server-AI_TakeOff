@@ -119,8 +119,160 @@ def filter_overlapping_x_shapes(x_shapes, red_squares):
     
     return filtered_x_shapes
 
-def create_rectangle_element(rect_data, color='red', prefix='container'):
-    """Create SVG rectangle element with colored border and numeration"""
+# --- Angled post-shore annotation rotation ---------------------------------
+# Post shores in the drawing's diagonal band are drawn as small rotated-square
+# markers (legs at ~27°/32°, not 45°). The raster detector groups the several
+# markers of one post-shore symbol into a single axis-aligned annotation box.
+# We recover each marker's angle from its SVG path, then rotate an annotation
+# by the median angle of the markers clustered within it.
+_SHORE_LEG_MIN, _SHORE_LEG_MAX = 55.0, 70.0
+_SHORE_SIDE_RATIO_MAX = 1.12
+_SHORE_CLUSTER_RADIUS = 120.0  # world units; markers within this belong to one annotation
+
+
+def _shore_marker_angle(path_d):
+    """If path_d is a rotated-square post-shore marker, return
+    (angle_deg, local_cx, local_cy); else None. angle folded to (-45, 45]."""
+    segs = list(_iter_line_segments(path_d))
+    if len(segs) not in (4, 5):
+        return None
+    legs = segs[:4]
+    lens = [math.hypot(x2 - x1, y2 - y1) for x1, y1, x2, y2 in legs]
+    if any(not (_SHORE_LEG_MIN <= L <= _SHORE_LEG_MAX) for L in lens):
+        return None
+    if max(lens) / min(lens) > _SHORE_SIDE_RATIO_MAX:
+        return None
+    angs = [_seg_angle_deg(*leg) for leg in legs]
+    if any(min(abs(a), abs(a - 90), abs(a - 180)) < 8 for a in angs):
+        return None  # axis-aligned squares are boxes/frames, not angled shores
+
+    def pdiff(a, b):
+        d = abs(a - b) % 180.0
+        return min(d, 180.0 - d)
+    if pdiff(angs[0], angs[2]) > 12 or pdiff(angs[1], angs[3]) > 12:
+        return None
+    if abs(pdiff(angs[0], angs[1]) - 90.0) > 15:
+        return None
+    xs = [p for s in legs for p in (s[0], s[2])]
+    ys = [p for s in legs for p in (s[1], s[3])]
+    a = angs[0] % 90.0
+    if a > 45.0:
+        a -= 90.0
+    return (a, sum(xs) / len(xs), sum(ys) / len(ys))
+
+
+def build_shore_markers(svg_content):
+    """Return [(world_cx, world_cy, angle_deg), ...] for every rotated-square
+    post-shore marker in svg_content, in world (viewBox) coords."""
+    _parent_of, xform_by_id = _build_parent_and_transform_maps(svg_content)
+    path_pattern = re.compile(r'<path\b[^>]*>')
+    d_pattern = re.compile(r'\bd="([^"]*)"')
+    id_pattern = re.compile(r'\bid="([^"]+)"')
+    markers = []
+    for m in path_pattern.finditer(svg_content):
+        tag = m.group(0)
+        d_m = d_pattern.search(tag)
+        id_m = id_pattern.search(tag)
+        if not (d_m and id_m):
+            continue
+        info = _shore_marker_angle(d_m.group(1))
+        if info is None:
+            continue
+        angle, lcx, lcy = info
+        mx = xform_by_id.get(id_m.group(1)) if xform_by_id else None
+        if mx is not None:
+            wcx, wcy = _apply_matrix(mx, lcx, lcy)
+            if mx[3] < 0:  # y-flip negates the drawn angle in world space
+                angle = -angle
+        else:
+            wcx, wcy = lcx, lcy
+        markers.append((wcx, wcy, angle))
+    return markers
+
+
+def _cluster_shore_angle(cx, cy, markers):
+    """Median angle of shore markers within _SHORE_CLUSTER_RADIUS of (cx, cy),
+    or None if this annotation has no angled markers (it's axis-aligned)."""
+    near = [a for mx, my, a in markers
+            if math.hypot(mx - cx, my - cy) < _SHORE_CLUSTER_RADIUS]
+    if not near:
+        return None
+    near.sort()
+    return near[len(near) // 2]
+
+
+_SHORE_LINK_RADIUS = 90.0     # markers within this are one post-shore symbol
+_SHORE_NEW_BOX = 18.0         # side length for a synthesised annotation box
+# A cluster counts as "already annotated" only if an existing box sits this
+# close to its center. Kept tight (existing matches are ≤81px) so a box that
+# belongs to a NEIGHBOURING shore (~92px away) doesn't suppress a new one.
+_SHORE_HAS_ANN_RADIUS = 85.0
+
+
+def cluster_shore_markers(markers):
+    """Single-link cluster markers into distinct post shores. Returns
+    [(cx, cy, median_angle, n_markers), ...] in world coords."""
+    used = [False] * len(markers)
+    clusters = []
+    for i, (x, y, _a) in enumerate(markers):
+        if used[i]:
+            continue
+        grp = [markers[i]]
+        used[i] = True
+        changed = True
+        while changed:
+            changed = False
+            for j, (x2, y2, _a2) in enumerate(markers):
+                if used[j]:
+                    continue
+                if any(math.hypot(x2 - gx, y2 - gy) < _SHORE_LINK_RADIUS
+                       for gx, gy, _ in grp):
+                    grp.append(markers[j])
+                    used[j] = True
+                    changed = True
+        cx = sum(g[0] for g in grp) / len(grp)
+        cy = sum(g[1] for g in grp) / len(grp)
+        angs = sorted(g[2] for g in grp)
+        clusters.append((cx, cy, angs[len(angs) // 2], len(grp)))
+    return clusters
+
+
+def synth_missing_shore_squares(markers, existing_rects, start_id):
+    """For each post-shore cluster with no existing annotation nearby, build a
+    synthetic red_square dict (with angle). `existing_rects` is the combined
+    list of already-detected annotation dicts (need center_x/center_y).
+    Returns (new_rects, next_id)."""
+    ann_centers = [
+        (r.get('center_x', r['x'] + r['width'] / 2),
+         r.get('center_y', r['y'] + r['height'] / 2))
+        for r in existing_rects
+    ]
+    new_rects = []
+    rid = start_id
+    for cx, cy, angle, _n in cluster_shore_markers(markers):
+        nearest = min((math.hypot(ax - cx, ay - cy) for ax, ay in ann_centers),
+                      default=1e9)
+        if nearest < _SHORE_HAS_ANN_RADIUS:
+            continue  # already annotated
+        half = _SHORE_NEW_BOX / 2.0
+        new_rects.append({
+            'id': rid,
+            'x': cx - half,
+            'y': cy - half,
+            'width': _SHORE_NEW_BOX,
+            'height': _SHORE_NEW_BOX,
+            'center_x': cx,
+            'center_y': cy,
+            '_shore_angle': angle,   # pre-computed; skips cluster lookup
+        })
+        rid += 1
+    return new_rects, rid
+
+
+def create_rectangle_element(rect_data, color='red', prefix='container', angle=None):
+    """Create SVG rectangle element with colored border and numeration.
+    When `angle` is given (degrees), the box + label are rotated about the
+    rectangle center to align with an angled post shore."""
     x = rect_data['x']
     y = rect_data['y']
     width = rect_data['width']
@@ -162,8 +314,18 @@ def create_rectangle_element(rect_data, color='red', prefix='container'):
        y="{text_y}"
        style="font-family:Arial;font-size:12px;fill:{color};text-anchor:{text_anchor};dominant-baseline:central;font-weight:bold">{rect_id}</text>
     '''
-    
-    return rect_element + text_element
+
+    combined = rect_element + text_element
+    if angle:
+        # Rotate the box + label about the rectangle center so the annotation
+        # aligns with an angled post shore.
+        rot_cx = x + width / 2
+        rot_cy = y + height / 2
+        combined = (
+            f'<g transform="rotate({angle:.2f} {rot_cx:.2f} {rot_cy:.2f})">'
+            f'{combined}</g>'
+        )
+    return combined
 
 def print_drawn_objects(green_rectangles, pink_rectangles, x_shapes, red_squares, orange_rectangles, yellow_rectangles):
     """Print summary information about all drawn objects in table format"""
@@ -234,22 +396,35 @@ def add_containers_to_svg(svg_content, green_rectangles, pink_rectangles, x_shap
         print("Error: Could not find closing </svg> tag")
         return None
     
+    # Angled post-shore markers, so X-shape and red-square annotations sitting
+    # on the diagonal band can be rotated to match (others get angle=None).
+    shore_markers = build_shore_markers(svg_content)
+
+    def _shore_angle_for(rect):
+        if rect.get('_shore_angle') is not None:
+            return rect['_shore_angle']  # synthesised shore box: angle known
+        cx = rect.get('center_x', rect['x'] + rect['width'] / 2)
+        cy = rect.get('center_y', rect['y'] + rect['height'] / 2)
+        return _cluster_shore_angle(cx, cy, shore_markers)
+
     # Create container elements for green frames (green borders)
     container_elements = []
     for rect in green_rectangles:
         container_elements.append(create_rectangle_element(rect, color='#70ff00', prefix='green_container'))
-    
+
     # Create container elements for pink frames (pink borders)
     for rect in pink_rectangles:
         container_elements.append(create_rectangle_element(rect, color='#ff69b4', prefix='pink_container'))
-    
+
     # Create container elements for X shapes (blue borders)
     for rect in x_shapes:
-        container_elements.append(create_rectangle_element(rect, color='#0000ff', prefix='x_shape'))
-    
+        container_elements.append(create_rectangle_element(
+            rect, color='#0000ff', prefix='x_shape', angle=_shore_angle_for(rect)))
+
     # Create container elements for red squares (red borders)
     for rect in red_squares:
-        container_elements.append(create_rectangle_element(rect, color='#ff0000', prefix='red_square'))
+        container_elements.append(create_rectangle_element(
+            rect, color='#ff0000', prefix='red_square', angle=_shore_angle_for(rect)))
     
     # Create container elements for orange frames (orange borders)
     for rect in orange_rectangles:
@@ -724,16 +899,22 @@ def run_step11():
     else:
         yellow_rectangles = yellow_frames_data.get('shapes', [])
 
+    # Read the source SVG so we can recover angled post-shore markers that the
+    # raster detector missed entirely.
+    svg_content = read_svg_file(step2_svg_path)
+    if not svg_content:
+        return False
+
+    # NOTE: Auto-synthesis of post-shore boxes from rotated-square SVG markers is
+    # disabled. Those markers land on meaningless diagonal-line details (not real
+    # post shores), producing spurious annotations. Post shores come solely from
+    # the raster detector (red squares / X-shapes).
+
     # Filter out X-shapes that overlap with red squares (silently)
     filtered_x_shapes = filter_overlapping_x_shapes(x_shapes, red_squares)
 
     # Print only the table
     print_drawn_objects(green_rectangles, pink_rectangles, filtered_x_shapes, red_squares, orange_rectangles, yellow_rectangles)
-
-    # Process SVG silently
-    svg_content = read_svg_file(step2_svg_path)
-    if not svg_content:
-        return False
 
     modified_svg = add_containers_to_svg(svg_content, green_rectangles, pink_rectangles, filtered_x_shapes, red_squares, orange_rectangles, yellow_rectangles)
     if not modified_svg:
