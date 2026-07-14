@@ -36,6 +36,10 @@ def find_and_remove_duplicate_paths(svg_path, output_path):
 
         if not found_duplicates:
             print("No duplicate paths found")
+            # Still write the (unmodified) SVG to output so downstream steps
+            # always have files/Step1.svg to read.
+            with open(output_path, "w", encoding="utf-8") as file:
+                file.write(svg_text)
             return svg_text
 
         # Remove duplicate paths

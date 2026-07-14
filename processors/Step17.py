@@ -221,6 +221,24 @@ def _apply_matrix(mx, x, y):
     return a * x + c * y + tx, b * x + d * y + ty
 
 
+# Off-axis tolerance for deciding a world segment is a true H/V rail. A path
+# drawn as a local H/V run but rotated by its transform renders diagonally and
+# must not be counted. Kept in sync with Step11._AXIS_ALIGN_TOL.
+_AXIS_ALIGN_TOL = 1.0
+
+
+def _world_orient(wx1, wy1, wx2, wy2):
+    """Return 'h' or 'v' if the world segment is axis-aligned within
+    _AXIS_ALIGN_TOL, else None (diagonal — not a 90°/180° beam)."""
+    dx = abs(wx2 - wx1)
+    dy = abs(wy2 - wy1)
+    if dy <= _AXIS_ALIGN_TOL and dx > dy:
+        return 'h'
+    if dx <= _AXIS_ALIGN_TOL and dy > dx:
+        return 'v'
+    return None
+
+
 def _parent_map(root):
     """Map each element to its parent."""
     return {child: parent for parent in root.iter() for child in parent}
@@ -421,6 +439,13 @@ def find_alum_beams(svg_path: Path, group_bbox=None):
         orient, lx1, ly1, lx2, ly2 = seg
         wx1, wy1 = _to_world(lx1, ly1, el, parent_of)
         wx2, wy2 = _to_world(lx2, ly2, el, parent_of)
+        # A local H/V run can render diagonally once its transform (which may
+        # include rotation/shear) is applied. Re-derive orientation from world
+        # space and drop anything that isn't a true 90°/180° rail.
+        world_orient = _world_orient(wx1, wy1, wx2, wy2)
+        if world_orient is None:
+            continue
+        orient = world_orient
         mx, my = (wx1 + wx2) / 2, (wy1 + wy2) / 2
         if not (mx_lo <= mx <= mx_hi and my_lo <= my <= my_hi):
             continue

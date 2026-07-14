@@ -567,20 +567,29 @@ def crop_svg_to_bounds(svg_text, bounds, cand, padding=GROUP_CROP_PADDING):
 
 _XML_DECL = '<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n'
 _SVG_PREFIX_TAG_RE = re.compile(r"(</?)svg:([A-Za-z][\w-]*)")
-_BG_RECT_RE = re.compile(r'\s*<rect\s+id="background"[^/>]*/>\s*', re.IGNORECASE)
+# The pipeline stacks two full-canvas rects (both id="background"): the
+# original #1c1c1c backdrop from original.svg, plus a #4e4e4e duplicate injected
+# by a later recolor pass. Strip ONLY the injected #4e4e4e one so the original
+# #1c1c1c background is preserved.
+_BG_RECT_RE = re.compile(
+    r'\s*<rect\s+id="background"[^>]*?fill:#4e4e4e[^>]*?/>\s*',
+    re.IGNORECASE,
+)
 
 
 def _make_figma_compatible(svg_text: str) -> str:
     """Post-process a cropped SVG so Figma can open it: drop the `svg:` element
-    prefix, swap `xmlns:svg` for the default `xmlns`, remove the oversized
-    background rect, and prepend an XML declaration if missing."""
+    prefix, swap `xmlns:svg` for the default `xmlns`, remove the injected
+    #4e4e4e background rect, and prepend an XML declaration if missing."""
     svg_text = _SVG_PREFIX_TAG_RE.sub(r"\1\2", svg_text)
     svg_text = svg_text.replace(
         'xmlns:svg="http://www.w3.org/2000/svg"',
         'xmlns="http://www.w3.org/2000/svg"',
         1,
     )
-    svg_text = _BG_RECT_RE.sub("\n", svg_text, count=1)
+    # Strip only the injected #4e4e4e duplicate; keep the original #1c1c1c
+    # background so group SVGs render on the original drawing backdrop.
+    svg_text = _BG_RECT_RE.sub("\n", svg_text)
     if not svg_text.lstrip().startswith("<?xml"):
         svg_text = _XML_DECL + svg_text
     return svg_text
@@ -662,6 +671,9 @@ def run_step16():
         })
 
     modified = inject_into_svg(svg_text, "\n".join(rect_svgs) + "\n")
+    # Strip the injected #4e4e4e duplicate background rect so Step16.svg keeps
+    # the original #1c1c1c drawing background.
+    modified = _BG_RECT_RE.sub("\n", modified)
 
     try:
         with open(OUTPUT_SVG, "w", encoding="utf-8") as f:

@@ -14,6 +14,13 @@ import cairosvg
 # Add parent directory to path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
+# Matches the injected #4e4e4e full-canvas background rect (the recolored copy
+# of the original #1c1c1c backdrop). Used to strip the duplicate before saving.
+_BG_4E_RECT_RE = re.compile(
+    r'\s*<rect\s+id="background"[^>]*?fill:#4e4e4e[^>]*?/>\s*',
+    re.IGNORECASE,
+)
+
 def load_green_frames(json_path):
     """Load green frames data from JSON file"""
     try:
@@ -384,6 +391,26 @@ def _apply_matrix(mx, x, y):
     return a * x + c * y + tx, b * x + d * y + ty
 
 
+# A world segment is only a real horizontal/vertical rail if, after the path's
+# transform is applied, one of its deltas collapses to (near) zero. A path may
+# be drawn as a local H/V run yet be rotated by its transform matrix (e.g. a
+# 45° beam), in which case it renders diagonally and must NOT be counted as an
+# aluminum rail. Anything more than this off-axis tolerance is rejected.
+_AXIS_ALIGN_TOL = 1.0  # world units; ~scale of a rounding/AA wobble
+
+
+def _world_orient(wx1, wy1, wx2, wy2):
+    """Return 'h' or 'v' if the world segment is axis-aligned within
+    _AXIS_ALIGN_TOL, else None (diagonal — not a 90°/180° beam)."""
+    dx = abs(wx2 - wx1)
+    dy = abs(wy2 - wy1)
+    if dy <= _AXIS_ALIGN_TOL and dx > dy:
+        return 'h'
+    if dx <= _AXIS_ALIGN_TOL and dy > dx:
+        return 'v'
+    return None
+
+
 def mark_alum_beams_by_dimension(svg_content, target_dimension, stroke_color, tolerance=0):
     """Turn the stroke color of any <path> whose H/V run matches target_dimension
     AND has at least one parallel same-dimension partner rail nearby. Returns
@@ -433,8 +460,14 @@ def mark_alum_beams_by_dimension(svg_content, target_dimension, stroke_color, to
             wx2, wy2 = _apply_matrix(mx, lx2, ly2)
         else:
             wx1, wy1, wx2, wy2 = lx1, ly1, lx2, ly2
+        # A local H/V run can become diagonal once its transform (which may
+        # include rotation/shear) is applied. Re-derive orientation from world
+        # space and drop anything that isn't a true horizontal/vertical rail.
+        world_orient = _world_orient(wx1, wy1, wx2, wy2)
+        if world_orient is None:
+            continue
         candidates.append((
-            path_id, orient,
+            path_id, world_orient,
             min(wx1, wx2), min(wy1, wy2),
             max(wx1, wx2), max(wy1, wy2),
         ))
@@ -647,6 +680,11 @@ def run_step11():
         beam_counts
     )
     save_beam_counts_json(beam_counts)
+
+    # Step2 recolors the original #1c1c1c background rect to #4e4e4e, and this
+    # step adds a fresh #1c1c1c rect on top — leaving two stacked backgrounds.
+    # Strip the #4e4e4e duplicate so only the original #1c1c1c background remains.
+    modified_svg = _BG_4E_RECT_RE.sub("\n", modified_svg)
 
     # Save SVG
     success = save_svg_file(modified_svg, output_path)
