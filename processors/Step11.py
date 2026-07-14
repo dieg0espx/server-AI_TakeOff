@@ -8,6 +8,7 @@ import json
 import os
 import sys
 import re
+import math
 from pathlib import Path
 import cairosvg
 
@@ -287,40 +288,78 @@ def convert_svg_to_png(svg_path, png_path):
         traceback.print_exc()
         return False
 
-_DIM_H_ABS = re.compile(r'\bM\s*(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\s*H\s*(-?\d+(?:\.\d+)?)\b')
-_DIM_V_ABS = re.compile(r'\bM\s*(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\s*V\s*(-?\d+(?:\.\d+)?)\b')
-_DIM_H_REL = re.compile(r'\bm\s*(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\s*h\s*(-?\d+(?:\.\d+)?)\b')
-_DIM_V_REL = re.compile(r'\bm\s*(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\s*v\s*(-?\d+(?:\.\d+)?)\b')
+_PATH_TOKEN_RE = re.compile(r'([MmLlHhVvCcSsQqTtAaZz])([^MmLlHhVvCcSsQqTtAaZz]*)')
+_PATH_NUM_RE = re.compile(r'-?\d+(?:\.\d+)?')
 
 
-def _candidate_segment(path_d, target_dimension, tolerance):
-    """If path_d has an H/V run matching target_dimension (±tolerance), return
-    (orient, x1, y1, x2, y2) in the path's *local* coordinate frame, else None.
-    Only the first matching run is returned."""
-    def matches(v):
-        return abs(v - target_dimension) <= tolerance
+def _iter_line_segments(path_d):
+    """Walk an SVG path's `d` data and yield every straight LINE sub-segment as
+    (x1, y1, x2, y2) in local coords. Handles M/m (incl. implicit trailing
+    linetos), L/l, H/h, V/v, and Z/z (close). Curve commands (C/S/Q/T/A) advance
+    the current point past their endpoint but are not treated as straight rails.
+    Yields ALL segments in the path, not just the first."""
+    cx = cy = 0.0      # current point
+    sx = sy = 0.0      # subpath start (for Z)
+    for cmd, args in _PATH_TOKEN_RE.findall(path_d):
+        nums = [float(n) for n in _PATH_NUM_RE.findall(args)]
+        if cmd in 'Mm':
+            i = 0
+            first = True
+            while i + 1 < len(nums):
+                x, y = nums[i], nums[i + 1]
+                nx, ny = (cx + x, cy + y) if cmd == 'm' else (x, y)
+                if first:
+                    cx, cy = nx, ny
+                    sx, sy = nx, ny
+                    first = False
+                else:
+                    # implicit lineto after the initial moveto pair
+                    yield (cx, cy, nx, ny)
+                    cx, cy = nx, ny
+                i += 2
+        elif cmd in 'Ll':
+            i = 0
+            while i + 1 < len(nums):
+                x, y = nums[i], nums[i + 1]
+                nx, ny = (cx + x, cy + y) if cmd == 'l' else (x, y)
+                yield (cx, cy, nx, ny)
+                cx, cy = nx, ny
+                i += 2
+        elif cmd in 'Hh':
+            for x in nums:
+                nx = cx + x if cmd == 'h' else x
+                yield (cx, cy, nx, cy)
+                cx = nx
+        elif cmd in 'Vv':
+            for y in nums:
+                ny = cy + y if cmd == 'v' else y
+                yield (cx, cy, cx, ny)
+                cy = ny
+        elif cmd in 'Zz':
+            yield (cx, cy, sx, sy)
+            cx, cy = sx, sy
+        else:
+            # Curve/arc: consume to endpoint so the current point stays correct.
+            # Endpoint is the last coordinate pair of the argument list.
+            if len(nums) >= 2:
+                if cmd.islower():
+                    cx += nums[-2]
+                    cy += nums[-1]
+                else:
+                    cx, cy = nums[-2], nums[-1]
 
-    m = _DIM_H_ABS.search(path_d)
-    if m:
-        x1, y1, x2 = float(m.group(1)), float(m.group(2)), float(m.group(3))
-        if matches(abs(x2 - x1)):
-            return ('h', min(x1, x2), y1, max(x1, x2), y1)
-    m = _DIM_V_ABS.search(path_d)
-    if m:
-        x1, y1, y2 = float(m.group(1)), float(m.group(2)), float(m.group(3))
-        if matches(abs(y2 - y1)):
-            return ('v', x1, min(y1, y2), x1, max(y1, y2))
-    m = _DIM_H_REL.search(path_d)
-    if m:
-        sx, sy, dx = float(m.group(1)), float(m.group(2)), float(m.group(3))
-        if matches(abs(dx)):
-            return ('h', min(sx, sx + dx), sy, max(sx, sx + dx), sy)
-    m = _DIM_V_REL.search(path_d)
-    if m:
-        sx, sy, dy = float(m.group(1)), float(m.group(2)), float(m.group(3))
-        if matches(abs(dy)):
-            return ('v', sx, min(sy, sy + dy), sx, max(sy, sy + dy))
-    return None
+
+def _candidate_segments(path_d, target_dimension, tolerance):
+    """Return a list of ALL straight line sub-segments in path_d whose length
+    matches target_dimension (±tolerance), each as (x1, y1, x2, y2) in local
+    coords. Beams may be drawn at any angle and a single path may contain
+    several matching rails, so every match is returned."""
+    out = []
+    for x1, y1, x2, y2 in _iter_line_segments(path_d):
+        length = math.hypot(x2 - x1, y2 - y1)
+        if abs(length - target_dimension) <= tolerance:
+            out.append((x1, y1, x2, y2))
+    return out
 
 
 _MATRIX_RE = re.compile(
@@ -391,34 +430,77 @@ def _apply_matrix(mx, x, y):
     return a * x + c * y + tx, b * x + d * y + ty
 
 
-# A world segment is only a real horizontal/vertical rail if, after the path's
-# transform is applied, one of its deltas collapses to (near) zero. A path may
-# be drawn as a local H/V run yet be rotated by its transform matrix (e.g. a
-# 45° beam), in which case it renders diagonally and must NOT be counted as an
-# aluminum rail. Anything more than this off-axis tolerance is rejected.
-_AXIS_ALIGN_TOL = 1.0  # world units; ~scale of a rounding/AA wobble
+# Two rails belong to the same beam when they are PARALLEL (angle within
+# _ANGLE_TOL) and OFFSET from each other (perpendicular gap > _OFFSET_TOL) with
+# overlapping extent along their shared direction. Beams are detected at ANY
+# angle — no 90°/180° restriction.
+_ANGLE_TOL_DEG = 4.0    # max angle difference for two rails to count as parallel
+_OFFSET_TOL = 1.0       # min perpendicular gap; below this they're the same line
+_EXTENT_TOL = 2.0       # min overlap along the shared direction
+# The opposite rail of a beam sits a fixed, tight distance away (measured ~6
+# world units across all detected beams). A parallel neighbor within this gap
+# confirms a beam even when that neighbor is a SHORT segment (an opposite rail
+# broken into pieces, or a cross-tie) rather than a full beam-length rail.
+_RAIL_SPACING_MAX = 10.0  # world units
+# Min world length for a segment to serve as a partner rail. The opposite rail
+# is often split into short pieces (~48 world units here), so this must stay
+# well below that; it only filters out tiny arrowhead/tick stubs.
+_PARTNER_MIN_LEN = 25.0   # world units
 
 
-def _world_orient(wx1, wy1, wx2, wy2):
-    """Return 'h' or 'v' if the world segment is axis-aligned within
-    _AXIS_ALIGN_TOL, else None (diagonal — not a 90°/180° beam)."""
-    dx = abs(wx2 - wx1)
-    dy = abs(wy2 - wy1)
-    if dy <= _AXIS_ALIGN_TOL and dx > dy:
-        return 'h'
-    if dx <= _AXIS_ALIGN_TOL and dy > dx:
-        return 'v'
-    return None
+def _seg_angle_deg(x1, y1, x2, y2):
+    """Undirected line angle in [0, 180) degrees. A segment and its reverse
+    share the same angle, so orientation of the drawn direction doesn't matter."""
+    ang = math.degrees(math.atan2(y2 - y1, x2 - x1)) % 180.0
+    return ang
+
+
+def _angle_close(a, b, tol=_ANGLE_TOL_DEG):
+    """True if two undirected angles (each in [0,180)) are within tol degrees,
+    accounting for the 0/180 wrap."""
+    diff = abs(a - b) % 180.0
+    return diff <= tol or diff >= 180.0 - tol
+
+
+def _build_parallel_pool(svg_content, xform_by_id):
+    """Return every straight line segment in the SVG (>= _PARTNER_MIN_LEN in
+    WORLD coords) as (path_id, angle_deg, x1, y1, x2, y2). Used as the pool of
+    potential partner rails — a beam's opposite rail may be short or split into
+    pieces, so we can't restrict partners to beam-length segments."""
+    path_pattern = re.compile(r'<path\b[^>]*>')
+    d_pattern = re.compile(r'\bd="([^"]*)"')
+    id_pattern = re.compile(r'\bid="([^"]+)"')
+    pool = []
+    for m in path_pattern.finditer(svg_content):
+        tag = m.group(0)
+        d_m = d_pattern.search(tag)
+        id_m = id_pattern.search(tag)
+        if not (d_m and id_m):
+            continue
+        path_id = id_m.group(1)
+        mx = xform_by_id.get(path_id) if xform_by_id else None
+        for lx1, ly1, lx2, ly2 in _iter_line_segments(d_m.group(1)):
+            if mx is not None:
+                wx1, wy1 = _apply_matrix(mx, lx1, ly1)
+                wx2, wy2 = _apply_matrix(mx, lx2, ly2)
+            else:
+                wx1, wy1, wx2, wy2 = lx1, ly1, lx2, ly2
+            if math.hypot(wx2 - wx1, wy2 - wy1) < _PARTNER_MIN_LEN:
+                continue
+            pool.append((path_id, _seg_angle_deg(wx1, wy1, wx2, wy2),
+                         wx1, wy1, wx2, wy2))
+    return pool
 
 
 def mark_alum_beams_by_dimension(svg_content, target_dimension, stroke_color, tolerance=0):
-    """Turn the stroke color of any <path> whose H/V run matches target_dimension
-    AND has at least one parallel same-dimension partner rail nearby. Returns
-    (updated_svg_content, changed_count).
+    """Turn the stroke color of any <path> whose straight run matches
+    target_dimension AND has at least one parallel same-dimension partner rail
+    nearby. Returns (updated_svg_content, changed_count).
 
-    Real aluminum beams are always drawn as TWO parallel rails. A lone matching
-    line is almost always a dimension/construction line that just happens to
-    share a beam's nominal length — recoloring it gives a misleading SVG.
+    Beams may be drawn at ANY angle (not just 90°/180°). A rail is kept only if
+    it has a parallel partner: real aluminum beams are always two parallel
+    rails, whereas a lone matching line is usually a dimension/construction line
+    that merely shares a beam's nominal length.
     """
     path_pattern = re.compile(r'<path\b[^>]*>')
     style_pattern = re.compile(r'\bstyle="([^"]*)"')
@@ -428,8 +510,11 @@ def mark_alum_beams_by_dimension(svg_content, target_dimension, stroke_color, to
     # Build ancestor-transform map so we can convert local path coords → world.
     _parent_of, xform_by_id = _build_parent_and_transform_maps(svg_content)
 
-    # Pass 1: collect candidate rails (geometry + fill/z guards).
-    candidates = []  # list of (path_id, orient, x1, y1, x2, y2)
+    # Pass 1: collect candidate rails (geometry + fill guard). A single path may
+    # contain several matching segments, so every one is registered. Each is
+    # stored as (path_id, angle_deg, x1, y1, x2, y2) in WORLD coords, angle in
+    # [0,180). path_id repeats across a path's segments — recoloring keys on it.
+    candidates = []
     for m in path_pattern.finditer(svg_content):
         tag = m.group(0)
         d_m = d_pattern.search(tag)
@@ -439,8 +524,8 @@ def mark_alum_beams_by_dimension(svg_content, target_dimension, stroke_color, to
             continue
 
         path_d = d_m.group(1)
-        seg = _candidate_segment(path_d, target_dimension, tolerance)
-        if seg is None:
+        segs = _candidate_segments(path_d, target_dimension, tolerance)
+        if not segs:
             continue
 
         style_value = st_m.group(1)
@@ -448,53 +533,66 @@ def mark_alum_beams_by_dimension(svg_content, target_dimension, stroke_color, to
         fill_val = fill_m.group(1).strip().lower() if fill_m else ''
         if fill_val and fill_val != 'none':
             continue
-        if re.search(r'\bz\b', path_d, re.IGNORECASE):
-            continue
 
         path_id = id_m.group(1)
-        orient, lx1, ly1, lx2, ly2 = seg
-        # Map to world coords via ancestor transform.
         mx = xform_by_id.get(path_id) if xform_by_id else None
-        if mx is not None:
-            wx1, wy1 = _apply_matrix(mx, lx1, ly1)
-            wx2, wy2 = _apply_matrix(mx, lx2, ly2)
-        else:
-            wx1, wy1, wx2, wy2 = lx1, ly1, lx2, ly2
-        # A local H/V run can become diagonal once its transform (which may
-        # include rotation/shear) is applied. Re-derive orientation from world
-        # space and drop anything that isn't a true horizontal/vertical rail.
-        world_orient = _world_orient(wx1, wy1, wx2, wy2)
-        if world_orient is None:
-            continue
-        candidates.append((
-            path_id, world_orient,
-            min(wx1, wx2), min(wy1, wy2),
-            max(wx1, wx2), max(wy1, wy2),
-        ))
+        for lx1, ly1, lx2, ly2 in segs:
+            # Map to world coords via ancestor transform.
+            if mx is not None:
+                wx1, wy1 = _apply_matrix(mx, lx1, ly1)
+                wx2, wy2 = _apply_matrix(mx, lx2, ly2)
+            else:
+                wx1, wy1, wx2, wy2 = lx1, ly1, lx2, ly2
+            # Length was already matched in local space (target_dimension is in
+            # the path's local units). World coords are used only for angle +
+            # partner geometry, which stay consistent under the transform scale.
+            angle = _seg_angle_deg(wx1, wy1, wx2, wy2)
+            candidates.append((path_id, angle, wx1, wy1, wx2, wy2))
 
-    # Pass 2: keep only candidates that have a same-orientation parallel
-    # partner (different perpendicular coord, overlapping parallel extent).
-    EXTENT_TOL = 2.0
-    OFFSET_TOL = 1.0  # essentially-same line → not a partner
+    # Pool of ALL long parallel-partner-eligible segments (any length), so a
+    # beam's opposite rail counts even when it's short or split into pieces.
+    partner_pool = _build_parallel_pool(svg_content, xform_by_id)
+
+    # Pass 2: keep a candidate rail if it has a parallel partner. A partner is
+    # any DIFFERENT-path segment that is parallel (angle within tol), offset from
+    # it, and overlapping along the shared direction — AND EITHER sits within the
+    # tight beam rail spacing (_RAIL_SPACING_MAX, the opposite rail) OR is itself
+    # a beam-length candidate (a second full rail, possibly farther out).
+    def _project_extent(ux, uy, x1, y1, x2, y2):
+        """Signed projections of both endpoints onto unit direction (ux,uy)."""
+        p1 = x1 * ux + y1 * uy
+        p2 = x2 * ux + y2 * uy
+        return (min(p1, p2), max(p1, p2))
+
+    beamlen_ids = {c[0] for c in candidates}
 
     def has_partner(c):
-        _id_c, o_c, cx1, cy1, cx2, cy2 = c
-        for d in candidates:
-            if d is c:
+        _id_c, a_c, cx1, cy1, cx2, cy2 = c
+        # Unit direction of this rail (its own axis).
+        clen = math.hypot(cx2 - cx1, cy2 - cy1)
+        if clen == 0:
+            return False
+        ux, uy = (cx2 - cx1) / clen, (cy2 - cy1) / clen
+        nx, ny = -uy, ux  # perpendicular unit vector
+        c_min, c_max = _project_extent(ux, uy, cx1, cy1, cx2, cy2)
+        c_perp = cx1 * nx + cy1 * ny
+        for _id_d, a_d, dx1, dy1, dx2, dy2 in partner_pool:
+            # Partner must be a DIFFERENT path (two separate rails = a real beam).
+            if _id_d == _id_c:
                 continue
-            _id_d, o_d, dx1, dy1, dx2, dy2 = d
-            if o_d != o_c:
+            if not _angle_close(a_c, a_d):
                 continue
-            if o_c == 'h':
-                if abs(cy1 - dy1) < OFFSET_TOL:
-                    continue
-                if min(cx2, dx2) - max(cx1, dx1) > EXTENT_TOL:
-                    return True
-            else:
-                if abs(cx1 - dx1) < OFFSET_TOL:
-                    continue
-                if min(cy2, dy2) - max(cy1, dy1) > EXTENT_TOL:
-                    return True
+            # Perpendicular gap between the two parallel lines.
+            offset = abs(c_perp - (dx1 * nx + dy1 * ny))
+            if offset < _OFFSET_TOL:
+                continue  # essentially the same line
+            # Overlap along the shared direction.
+            d_min, d_max = _project_extent(ux, uy, dx1, dy1, dx2, dy2)
+            if min(c_max, d_max) - max(c_min, d_min) <= _EXTENT_TOL:
+                continue
+            # Accept if it's the tight opposite rail, or a full beam-length rail.
+            if offset <= _RAIL_SPACING_MAX or _id_d in beamlen_ids:
+                return True
         return False
 
     keepers = {c[0] for c in candidates if has_partner(c)}
@@ -641,22 +739,24 @@ def run_step11():
     if not modified_svg:
         return False
 
-    # Beam categories and styling rules
+    # Beam categories and styling rules. Tolerance is 2 local units: diagonal
+    # rails of the same beam can differ by ~1.5 units due to rounding, and the
+    # smallest gap between adjacent beam dimensions is 37, so 2 stays unambiguous.
     beam_specs = [
-        ("alumBeam20", 1500, 1, "#A020F0"),
-        ("alumBeam18", 1350, 1, "#FFD400"),
-        ("alumBeam16", 1201, 1, "#ffffff"),
-        ("alumBeam14", 1050, 1, "#1D915C"),
-        ("alumBeam13", 975, 1, "#9CFF9C"),
-        ("alumBeam12", 900, 1, "#F54927"),
-        ("alumBeam11", 825, 1, "#FF6EC7"),
-        ("alumBeam10_6", 787, 1, "#FFA805"),
-        ("alumBeam10", 750, 1, "#00C8FF"),
-        ("alumBeam9", 675, 1, "#B52FC4"),
-        ("alumBeam8", 600, 1, "#00FFFF"),
-        ("alumBeam7", 525, 1, "#FFBC85"),
-        ("alumBeam6", 451, 1, "#E6E600"),
-        ("alumBeam5", 376, 1, "#4084FF"),
+        ("alumBeam20", 1500, 2, "#A020F0"),
+        ("alumBeam18", 1350, 2, "#FFD400"),
+        ("alumBeam16", 1201, 2, "#ffffff"),
+        ("alumBeam14", 1050, 2, "#1D915C"),
+        ("alumBeam13", 975, 2, "#9CFF9C"),
+        ("alumBeam12", 900, 2, "#F54927"),
+        ("alumBeam11", 825, 2, "#FF6EC7"),
+        ("alumBeam10_6", 787, 2, "#FFA805"),
+        ("alumBeam10", 750, 2, "#00C8FF"),
+        ("alumBeam9", 675, 2, "#B52FC4"),
+        ("alumBeam8", 600, 2, "#00FFFF"),
+        ("alumBeam7", 525, 2, "#FFBC85"),
+        ("alumBeam6", 451, 2, "#E6E600"),
+        ("alumBeam5", 376, 2, "#4084FF"),
     ]
 
     beam_counts = {}
