@@ -776,6 +776,64 @@ def read_container_span(container, paths, default_span):
     return f"{first['digit']}'"
 
 
+def read_container_frames(container, paths, default_height):
+    """
+    Read the FRAMES for a green container from its apostrophe/dimension
+    numbers.
+
+    Every annotation spans 2 SIDES, and frames come one-per-side. The
+    apostrophe numbers describe the STACK on a single side:
+      - No apostrophe -> stack of 1 per side (the default height).
+      - "5'+5'" (two apostrophe numbers) -> stack of 2 per side, heights
+        [5, 5].
+    The full annotation is that stack duplicated across both sides, so the
+    returned list has length = stack_size * 2 (e.g. default -> 2 frames;
+    "5'+5'" -> 4 frames).
+
+    Returns a list of frame heights (ints), e.g. [6, 6] or [5, 5, 5, 5].
+    """
+    contained = find_contained_paths({0: container}, paths)
+    analyzed = find_glyph_paths(contained)
+    glyphs = analyzed.get(0, {}).get('glyphs', [])
+
+    apostrophes = [g for g in glyphs if g.get('digit') == 'apostrophe']
+    digits = [g for g in glyphs if g.get('digit') in ('3', '4', '5', '6', '7')]
+
+    if not apostrophes or not digits:
+        # Default stack of 1 per side -> 2 frames total.
+        return [int(default_height)] * 2
+
+    def center(g):
+        x0, y0, x1, y1 = g['screen_bbox']
+        return ((x0 + x1) / 2.0, (y0 + y1) / 2.0)
+
+    # Pair each apostrophe with its nearest digit (each digit used once) to
+    # build the per-side stack.
+    used = set()
+    stack = []
+    for ap in apostrophes:
+        ax, ay = center(ap)
+        best = None
+        best_d = None
+        for i, dg in enumerate(digits):
+            if i in used:
+                continue
+            dx, dy = center(dg)
+            dist = (dx - ax) ** 2 + (dy - ay) ** 2
+            if best_d is None or dist < best_d:
+                best_d = dist
+                best = i
+        if best is not None:
+            used.add(best)
+            stack.append(int(digits[best]['digit']))
+
+    if not stack:
+        return [int(default_height)] * 2
+
+    # The stack is duplicated across both sides of the annotation.
+    return stack * 2
+
+
 def color_for_span(span):
     """
     Look up the cross bar color for a span using the 6' & 5' frame table
@@ -788,16 +846,21 @@ def color_for_span(span):
     return "#ffff00", "Yellow"
 
 
-def add_crossbar_lines(svg_content, paths, default_span):
+def add_crossbar_lines(svg_content, paths, default_span, default_height):
     """
-    For every green_container, read its span (from glyphs, or the drawing
-    default), look up the cross bar color, and draw 2 short vertical lines
-    (one per frame) in that color at the bottom-left, inside the container.
+    For every green_container:
+      - read its span (cross-bar size) -> line color
+      - read its frames from apostrophe dimension numbers (each apostrophe
+        number is one frame's height; default is a single frame at
+        `default_height`)
+    Draw ONE short vertical line PER FRAME in the cross-bar color, at the
+    bottom-left, inside the container.
 
-    Returns (svg_content, count, color_breakdown).
+    Returns (svg_content, count, color_breakdown, frame_breakdown).
     """
     line_els = []
     color_counts = {}
+    frame_counts = {}
     # Match each green_container rect (id + x/y/width/height attributes).
     rect_re = re.compile(
         r'<rect\s+id="green_container_(\d+)"\s+x="([\d.]+)"\s+y="([\d.]+)"'
@@ -805,13 +868,12 @@ def add_crossbar_lines(svg_content, paths, default_span):
         re.DOTALL,
     )
     count = 0
-    # Each annotation represents 2 frames, so draw 2 short vertical lines
-    # (~ the height of the 8px label number), side by side, just inside the
-    # container's left edge and aligned to the bottom (where the label sits).
+    # Short lines (~ the 8px label height), just inside the container's left
+    # edge, aligned to the bottom, one per frame spaced horizontally.
     LINE_LEN = 8.0
     INSET = 3.0
     BOTTOM_PAD = 3.0
-    GAP = 3.0  # horizontal gap between the two frame lines
+    GAP = 3.0  # horizontal gap between frame lines
     for m in rect_re.finditer(svg_content):
         num, x, y, w, h = m.groups()
         x = float(x); y = float(y); w = float(w); h = float(h)
@@ -822,9 +884,13 @@ def add_crossbar_lines(svg_content, paths, default_span):
         color_hex, color_name = color_for_span(span)
         color_counts[color_name] = color_counts.get(color_name, 0) + 1
 
+        frames = read_container_frames(container, paths, default_height)
+        n_frames = len(frames)
+        frame_counts[n_frames] = frame_counts.get(n_frames, 0) + 1
+
         y2 = y + h - BOTTOM_PAD
         y1 = y2 - LINE_LEN
-        for i in range(2):
+        for i in range(n_frames):
             lx = x + INSET + i * GAP
             line_els.append(
                 f'    <line id="crossbar_line_green_{num}_{i + 1}" '
@@ -836,7 +902,7 @@ def add_crossbar_lines(svg_content, paths, default_span):
     if line_els:
         block = "\n" + "\n".join(line_els) + "\n"
         svg_content = svg_content.replace("</svg>", block + "</svg>", 1)
-    return svg_content, count, color_counts
+    return svg_content, count, color_counts, frame_counts
 
 
 def extract_default_frame_spec(extracted_text):
@@ -982,10 +1048,14 @@ def run_step13():
         # span 5). Containers with no digits fall back to the drawing default
         # bracing. Span maps to a cross bar color via the 6' & 5' table.
         default_bracing = None
+        default_height = None
         if frame_spec:
             default_bracing = frame_spec.get('bracing_ft')
+            default_height = frame_spec.get('height_ft')
         if default_bracing is None:
             default_bracing = 7  # drawing default when spec unavailable
+        if default_height is None:
+            default_height = 6  # drawing default when spec unavailable
         default_span = f"{int(default_bracing)}'"
 
         if os.path.exists(out_path):
@@ -993,12 +1063,13 @@ def run_step13():
             green_paths = get_g10_paths(_ET.parse(out_path).getroot())
             with open(out_path, 'r', encoding='utf-8') as f:
                 svg_content = f.read()
-            svg_content, n_lines, color_counts = add_crossbar_lines(
-                svg_content, green_paths, default_span)
+            svg_content, n_lines, color_counts, frame_counts = add_crossbar_lines(
+                svg_content, green_paths, default_span, default_height)
             with open(out_path, 'w', encoding='utf-8') as f:
                 f.write(svg_content)
-            print(f"✅ Added crossbar lines to {n_lines} annotation(s) (2 per annotation) in Step13.svg")
+            print(f"✅ Added crossbar lines to {n_lines} annotation(s) in Step13.svg")
             print(f"   Color breakdown: {color_counts}")
+            print(f"   Frames-per-annotation breakdown: {frame_counts}")
 
         print(f"\n✓ Step13 completed")
         return success
