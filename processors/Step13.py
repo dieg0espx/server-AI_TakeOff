@@ -130,6 +130,20 @@ GLYPH_SIGNATURES = {
         re.compile(r'^-?3[78],[01]$'),
         re.compile(r'^-?[01],3[78]$'),
     ],
+    "apostrophe": [
+        # Foot/prime mark: two z-closed subpaths with a ~±20,±30 diagonal,
+        # e.g. "-5,5 -20,-30 z m -5,5 -20,-30 -5,5 z" (and mirrored). This is a
+        # DIMENSION tick, NOT a cross-bar 'x' — it flags the numbers as a
+        # measurement (e.g. 5'6"), not a cross-bar size.
+        re.compile(r'^-?[45],-?[45]\s+-?2[01],-?[23]\d\s+z\s+m\s+-?[45],-?[45]\s+-?2[01],-?[23]\d'),
+        # Small comma-shaped prime tick, e.g.
+        # "2,-2 -2,-2 -2,2 2,2 h 4 l 4,-2 2,-2" (and slight variants such as a
+        # trailing "3,-2"). Same meaning: a dimension foot/inch mark.
+        re.compile(r'^2,-[23]\s+-2,-[23]\s+-2,[23]\s+2,2\s+h\s+[45]\s+l\s+[45],-2\s+[23],-2$'),
+        # Vertical-orientation prime tick (tall/narrow), e.g.
+        # "-2,-3 -2,3 2,2 2,-2 v -5 l -2,-4 -2,-2". Same dimension mark.
+        re.compile(r'^-2,-[23]\s+-2,[23]\s+2,2\s+2,-2\s+v\s+-[45]\s+l\s+-2,-[34]\s+-2,-2$'),
+    ],
 }
 
 # ── Color changes to apply ──
@@ -143,6 +157,7 @@ GLYPH_COLOR_CHANGES = {
     "7": "#ffffff",
     "cross_v": "#ffffff",
     "cross_h": "#ffffff",
+    "apostrophe": "#ffffff",
 }
 
 
@@ -544,10 +559,22 @@ def process_container_group(prefix, containers, paths, svg_content):
     # ── Apply color changes ──
     changed_count = 0
     for num in sorted(analyzed.keys()):
-        for g in analyzed[num]['glyphs']:
+        glyphs = analyzed[num]['glyphs']
+        # If a container has at least one recognized label glyph, tiny
+        # unidentified fragments in it (digit=None) are stray strokes/ticks
+        # that belong to the same white label — recolor those white too.
+        # Only genuinely tiny fragments qualify; larger unrecognized shapes
+        # are real glyphs we simply failed to classify and are left alone.
+        TICK_MAX = 3.0
+        has_known = any(g['digit'] in GLYPH_COLOR_CHANGES for g in glyphs)
+        for g in glyphs:
             if g['digit'] in GLYPH_COLOR_CHANGES:
                 new_color = GLYPH_COLOR_CHANGES[g['digit']]
                 svg_content = change_path_color(svg_content, g['id'], new_color)
+                changed_count += 1
+            elif (g['digit'] is None and has_known
+                  and g['width'] < TICK_MAX and g['height'] < TICK_MAX):
+                svg_content = change_path_color(svg_content, g['id'], "#ffffff")
                 changed_count += 1
 
     # ── Move labels to bottom-right ──
@@ -717,12 +744,60 @@ CROSS_BAR_COLOR_HEX = {
 }
 
 
-def add_crossbar_lines(svg_content, color_hex):
+def read_container_span(container, paths, default_span):
     """
-    Draw a vertical line in the cross bar color on the LEFT edge of every
-    green_container rect, full container height. Returns (svg_content, count).
+    Read the span digit from a green container's glyphs.
+
+    An annotation like "5x4" means span=5, frame height=4. The first digit
+    (topmost for vertical layouts, leftmost for horizontal) is the span, which
+    overrides the drawing default bracing. Containers with no digit spec fall
+    back to `default_span`.
+
+    Returns the span as a string like "5'", or default if none found.
+    """
+    contained = find_contained_paths({0: container}, paths)
+    analyzed = find_glyph_paths(contained)
+    glyphs = analyzed.get(0, {}).get('glyphs', [])
+
+    # An apostrophe/foot mark means the numbers are a DIMENSION (e.g. 5'6"),
+    # not a cross-bar size — so this annotation uses the drawing default.
+    if any(g.get('digit') == 'apostrophe' for g in glyphs):
+        return default_span
+
+    digit_glyphs = [g for g in glyphs if g.get('digit') in ('4', '5', '6', '7')]
+    if not digit_glyphs:
+        return default_span
+
+    x0, y0, x1, y1 = container['screen_bbox']
+    is_vertical = (y1 - y0) >= (x1 - x0)
+    # First digit = topmost (vertical) or leftmost (horizontal).
+    key = (lambda g: g['screen_bbox'][1]) if is_vertical else (lambda g: g['screen_bbox'][0])
+    first = sorted(digit_glyphs, key=key)[0]
+    return f"{first['digit']}'"
+
+
+def color_for_span(span):
+    """
+    Look up the cross bar color for a span using the 6' & 5' frame table
+    (frame height stays at the drawing default of 6). Returns a hex color;
+    falls back to Yellow if the span isn't in the table.
+    """
+    for row in CROSS_BAR_TABLES[0]["rows"]:  # 6' & 5' table
+        if row["span"] == span:
+            return CROSS_BAR_COLOR_HEX.get(row["color"], "#ffff00"), row["color"]
+    return "#ffff00", "Yellow"
+
+
+def add_crossbar_lines(svg_content, paths, default_span):
+    """
+    For every green_container, read its span (from glyphs, or the drawing
+    default), look up the cross bar color, and draw 2 short vertical lines
+    (one per frame) in that color at the bottom-left, inside the container.
+
+    Returns (svg_content, count, color_breakdown).
     """
     line_els = []
+    color_counts = {}
     # Match each green_container rect (id + x/y/width/height attributes).
     rect_re = re.compile(
         r'<rect\s+id="green_container_(\d+)"\s+x="([\d.]+)"\s+y="([\d.]+)"'
@@ -738,8 +813,15 @@ def add_crossbar_lines(svg_content, color_hex):
     BOTTOM_PAD = 3.0
     GAP = 3.0  # horizontal gap between the two frame lines
     for m in rect_re.finditer(svg_content):
-        num, x, y, _w, h = m.groups()
-        x = float(x); y = float(y); h = float(h)
+        num, x, y, w, h = m.groups()
+        x = float(x); y = float(y); w = float(w); h = float(h)
+
+        container = {'id': f'green_container_{num}',
+                     'screen_bbox': (x, y, x + w, y + h)}
+        span = read_container_span(container, paths, default_span)
+        color_hex, color_name = color_for_span(span)
+        color_counts[color_name] = color_counts.get(color_name, 0) + 1
+
         y2 = y + h - BOTTOM_PAD
         y1 = y2 - LINE_LEN
         for i in range(2):
@@ -754,7 +836,7 @@ def add_crossbar_lines(svg_content, color_hex):
     if line_els:
         block = "\n" + "\n".join(line_els) + "\n"
         svg_content = svg_content.replace("</svg>", block + "</svg>", 1)
-    return svg_content, count
+    return svg_content, count, color_counts
 
 
 def extract_default_frame_spec(extracted_text):
@@ -896,18 +978,27 @@ def run_step13():
         print(f"\n✅ Saved default frame spec to data.json")
 
         # ── Draw crossbar color lines on Step13.svg ──
-        # For now every green container takes the default frame spec, so the
-        # cross bar color is the same for all. Height 6 -> "6' & 5'" table,
-        # bracing 7 -> span 7' -> 7x4 -> Yellow.
-        default_color = "Yellow"
-        color_hex = CROSS_BAR_COLOR_HEX.get(default_color, "#ffff00")
+        # Each green container's span is read from its glyphs (e.g. "5x4" ->
+        # span 5). Containers with no digits fall back to the drawing default
+        # bracing. Span maps to a cross bar color via the 6' & 5' table.
+        default_bracing = None
+        if frame_spec:
+            default_bracing = frame_spec.get('bracing_ft')
+        if default_bracing is None:
+            default_bracing = 7  # drawing default when spec unavailable
+        default_span = f"{int(default_bracing)}'"
+
         if os.path.exists(out_path):
+            import xml.etree.ElementTree as _ET
+            green_paths = get_g10_paths(_ET.parse(out_path).getroot())
             with open(out_path, 'r', encoding='utf-8') as f:
                 svg_content = f.read()
-            svg_content, n_lines = add_crossbar_lines(svg_content, color_hex)
+            svg_content, n_lines, color_counts = add_crossbar_lines(
+                svg_content, green_paths, default_span)
             with open(out_path, 'w', encoding='utf-8') as f:
                 f.write(svg_content)
-            print(f"✅ Added {default_color} crossbar lines to {n_lines} annotation(s) (2 per annotation) in Step13.svg")
+            print(f"✅ Added crossbar lines to {n_lines} annotation(s) (2 per annotation) in Step13.svg")
+            print(f"   Color breakdown: {color_counts}")
 
         print(f"\n✓ Step13 completed")
         return success
