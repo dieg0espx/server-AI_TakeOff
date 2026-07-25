@@ -799,10 +799,17 @@ def mark_alum_beams_by_dimension(svg_content, target_dimension, stroke_color, to
         return tag.replace(st_m.group(0), f'style="{updated_style}"', 1)
 
     updated_svg = path_pattern.sub(replace_path, svg_content)
-    return updated_svg, changed_count
+    # `keepers` is the set of ORIGINAL path ids recolored to this beam class —
+    # returned so callers can map path id -> classification without re-scraping
+    # colors from the SVG (white #ffffff is shared with non-beam paths).
+    return updated_svg, changed_count, keepers
 
-def update_data_json_with_counts(green_count, pink_count, x_count, red_count, orange_count, yellow_count, beam_counts):
-    """Update data.json with current step results"""
+def update_data_json_with_counts(green_count, pink_count, x_count, red_count, orange_count, yellow_count, beam_counts, identified=None):
+    """Update data.json with current step results.
+
+    `identified` is the {element_id: classification} map for every non-gray
+    element (beams keyed by path id, shores/frames by container id); it is stored
+    under the top-level "identified_elements" key so the database gets it too."""
     try:
         base_dir = Path(__file__).parent.parent
         data_file = base_dir / "data.json"
@@ -824,6 +831,10 @@ def update_data_json_with_counts(green_count, pink_count, x_count, red_count, or
             "step11_yellow_shapes": yellow_count
         }
         data["step_results"].update(beam_counts)
+
+        # Store the full id -> classification map for the database.
+        if identified is not None:
+            data["identified_elements"] = identified
 
         # Write back to data.json
         with open(data_file, 'w') as f:
@@ -941,14 +952,41 @@ def run_step11():
     ]
 
     beam_counts = {}
+    identified = {}   # element id -> classification label (path id for beams)
     for beam_key, beam_dimension, beam_tolerance, beam_color in beam_specs:
-        modified_svg, beam_count = mark_alum_beams_by_dimension(
+        modified_svg, beam_count, beam_ids = mark_alum_beams_by_dimension(
             modified_svg,
             beam_dimension,
             beam_color,
             beam_tolerance,
         )
         beam_counts[beam_key] = beam_count
+        for pid in beam_ids:
+            identified[pid] = beam_key
+
+    # Add the annotation containers (shores + frames) to the identified map.
+    # Their ids are the ones create_rectangle_element assigns: "<prefix>_<id>".
+    for rect in green_rectangles:
+        identified[f"green_container_{rect['id']}"] = "greenFrame"
+    for rect in pink_rectangles:
+        identified[f"pink_container_{rect['id']}"] = "pinkFrame"
+    for rect in filtered_x_shapes:
+        identified[f"x_shape_{rect['id']}"] = "shore_x"
+    for rect in red_squares:
+        identified[f"red_square_{rect['id']}"] = "shore_square"
+    for rect in orange_rectangles:
+        identified[f"orange_container_{rect['id']}"] = "orangeFrame"
+    for rect in yellow_rectangles:
+        identified[f"yellow_container_{rect['id']}"] = "yellowFrame"
+
+    # Write the single path-id -> classification map for all non-gray elements.
+    ident_path = base_dir / "files" / "tempData" / "identified_elements.json"
+    try:
+        with open(ident_path, "w", encoding="utf-8") as f:
+            json.dump(identified, f, indent=2)
+        print(f"  Wrote {len(identified)} identified elements to {ident_path}")
+    except Exception as e:
+        print(f"  Warning: could not write identified_elements.json: {e}")
 
     # Update data.json with counts
     update_data_json_with_counts(
@@ -958,7 +996,8 @@ def run_step11():
         len(red_squares),
         len(orange_rectangles),
         len(yellow_rectangles),
-        beam_counts
+        beam_counts,
+        identified
     )
     save_beam_counts_json(beam_counts)
 

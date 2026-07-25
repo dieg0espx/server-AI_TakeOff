@@ -28,6 +28,30 @@ TX_D = -0.16
 TX_E = 18.666666
 TX_F = 2240.0
 
+# ── Cross bar lookup tables ──
+# Frame size + span between frames -> cross bar size + color.
+# Group 1 covers 6' & 5' frames; group 2 covers 4' & 3' frames.
+CROSS_BAR_TABLES = [
+    {
+        "frame_sizes": ["6'", "5'"],
+        "rows": [
+            {"span": "10'", "cross_bar_size": "10x4", "color": "Purple"},
+            {"span": "7'",  "cross_bar_size": "7x4",  "color": "Yellow"},
+            {"span": "5'",  "cross_bar_size": "5x4",  "color": "Green"},
+            {"span": "4'",  "cross_bar_size": "4x4",  "color": "Blue"},
+        ],
+    },
+    {
+        "frame_sizes": ["4'", "3'"],
+        "rows": [
+            {"span": "10'", "cross_bar_size": "10x2", "color": "Pink"},
+            {"span": "7'",  "cross_bar_size": "7x2",  "color": "Red"},
+            {"span": "5'",  "cross_bar_size": "5x2",  "color": "Orange"},
+            {"span": "4'",  "cross_bar_size": "4x2",  "color": "White"},
+        ],
+    },
+]
+
 # ── Glyph signatures ──
 # Each digit has a distinctive relative path pattern (after the initial "m x,y").
 # These patterns appear in two orientations depending on container layout.
@@ -680,6 +704,142 @@ def process_svg(input_file, output_file):
     return True, all_summary
 
 
+# Hex colors for cross bar colors named in CROSS_BAR_TABLES.
+CROSS_BAR_COLOR_HEX = {
+    "Purple": "#a000c0",
+    "Yellow": "#ffff00",
+    "Green":  "#00c000",
+    "Blue":   "#0000ff",
+    "Pink":   "#ff69b4",
+    "Red":    "#ff0000",
+    "Orange": "#ff8c00",
+    "White":  "#ffffff",
+}
+
+
+def add_crossbar_lines(svg_content, color_hex):
+    """
+    Draw a vertical line in the cross bar color on the LEFT edge of every
+    green_container rect, full container height. Returns (svg_content, count).
+    """
+    line_els = []
+    # Match each green_container rect (id + x/y/width/height attributes).
+    rect_re = re.compile(
+        r'<rect\s+id="green_container_(\d+)"\s+x="([\d.]+)"\s+y="([\d.]+)"'
+        r'\s+width="([\d.]+)"\s+height="([\d.]+)"',
+        re.DOTALL,
+    )
+    count = 0
+    # Each annotation represents 2 frames, so draw 2 short vertical lines
+    # (~ the height of the 8px label number), side by side, just inside the
+    # container's left edge and aligned to the bottom (where the label sits).
+    LINE_LEN = 8.0
+    INSET = 3.0
+    BOTTOM_PAD = 3.0
+    GAP = 3.0  # horizontal gap between the two frame lines
+    for m in rect_re.finditer(svg_content):
+        num, x, y, _w, h = m.groups()
+        x = float(x); y = float(y); h = float(h)
+        y2 = y + h - BOTTOM_PAD
+        y1 = y2 - LINE_LEN
+        for i in range(2):
+            lx = x + INSET + i * GAP
+            line_els.append(
+                f'    <line id="crossbar_line_green_{num}_{i + 1}" '
+                f'x1="{lx}" y1="{y1}" x2="{lx}" y2="{y2}" '
+                f'style="stroke:{color_hex};stroke-width:2;stroke-opacity:1" />'
+            )
+        count += 1
+
+    if line_els:
+        block = "\n" + "\n".join(line_els) + "\n"
+        svg_content = svg_content.replace("</svg>", block + "</svg>", 1)
+    return svg_content, count
+
+
+def extract_default_frame_spec(extracted_text):
+    """
+    Use Gemini to pull the drawing's default frame spec from OCR text, e.g.
+    "ALL FRAMES TO BE 6' HIGH X 4' WIDE HEAVY DUTY(10K/LEG) WITH 7' BRACING TYP".
+
+    Returns a dict like {"height_ft": 6, "bracing_ft": 7} (values null if absent),
+    or None if extraction could not run.
+    """
+    if not extracted_text or not extracted_text.strip():
+        print("⚠️  No extracted_text available — skipping default frame spec extraction")
+        return None
+
+    # Honor SKIP_GEMINI=1 for local/dev runs that shouldn't burn API quota.
+    if os.getenv('SKIP_GEMINI'):
+        print("⏭️  SKIP_GEMINI set — skipping default frame spec extraction")
+        return None
+
+    try:
+        import json
+        from google import genai
+        from google.genai import types
+
+        api_key = os.getenv('GEMINI_API_KEY')
+        if not api_key:
+            print("⚠️  GEMINI_API_KEY not found — skipping default frame spec extraction")
+            return None
+
+        prompt = f"""You are reading OCR text from a scaffolding/shoring construction drawing.
+
+Find the DEFAULT FRAME specification note. It usually reads like:
+"ALL FRAMES TO BE 6' HIGH X 4' WIDE HEAVY DUTY(10K/LEG) WITH 7' BRACING TYP"
+
+Extract ONLY these two values:
+- height_ft: the frame HIGH/HEIGHT value in feet (integer or decimal)
+- bracing_ft: the BRACING value in feet (integer or decimal)
+
+Return STRICT JSON with exactly these keys and nothing else:
+{{"height_ft": <number or null>, "bracing_ft": <number or null>}}
+
+Use null for any value not present. Do not include units, comments, or extra text.
+
+OCR TEXT:
+{extracted_text}"""
+
+        print("\n🤖 Extracting default frame spec with Gemini...")
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.0,
+                max_output_tokens=200,
+            )
+        )
+
+        raw = (response.text or "").strip()
+        # Strip markdown code fences if present.
+        if raw.startswith("```"):
+            raw = raw.strip("`")
+            if raw.lstrip().lower().startswith("json"):
+                raw = raw.lstrip()[4:]
+        # Grab the first {...} block to be safe.
+        m = re.search(r'\{.*\}', raw, re.DOTALL)
+        if not m:
+            print(f"⚠️  Could not parse frame spec from Gemini response: {raw!r}")
+            return None
+
+        spec = json.loads(m.group(0))
+        result = {
+            "height_ft": spec.get("height_ft"),
+            "bracing_ft": spec.get("bracing_ft"),
+        }
+        print(f"✅ Default frame spec: {result}")
+        return result
+
+    except ImportError:
+        print("⚠️  google-genai not installed — skipping default frame spec extraction")
+        return None
+    except Exception as e:
+        print(f"⚠️  Error extracting default frame spec: {e}")
+        return None
+
+
 def run_step13():
     """
     Pipeline entry point. Processes both Step11 SVG variants in-place.
@@ -699,11 +859,12 @@ def run_step13():
         all_summary = {}
 
         svg_path = f"{base}/files/Step11.svg"
+        out_path = f"{base}/files/Step13.svg"
         if os.path.exists(svg_path):
             print(f"\n{'=' * 60}")
             print(f"Processing Step11.svg")
             print(f"{'=' * 60}")
-            result, summary = process_svg(svg_path, svg_path)
+            result, summary = process_svg(svg_path, out_path)
             if not result:
                 success = False
             else:
@@ -711,45 +872,42 @@ def run_step13():
         else:
             print(f"⚠️  {svg_path} not found, skipping")
 
-        # Save glyph totals per container type to data.json
-        if all_summary:
-            data_path = f"{base}/data.json"
-            data = {}
-            if os.path.exists(data_path):
-                try:
-                    with open(data_path, 'r') as f:
-                        data = json.load(f)
-                except (json.JSONDecodeError, Exception):
-                    data = {}
+        # Save the drawing's default frame spec to data.json.
+        data_path = f"{base}/data.json"
+        data = {}
+        if os.path.exists(data_path):
+            try:
+                with open(data_path, 'r') as f:
+                    data = json.load(f)
+            except (json.JSONDecodeError, Exception):
+                data = {}
 
-            # Per-container detail and per-type summary used to be persisted
-            # to data.json as `container_glyphs_detail` / `container_glyphs`
-            # but they bloated the payload without being consumed downstream
-            # (Step13b just printed them and `local_test.py` only displays
-            # them in dev). The aggregate `crossbar_totals` / `frame_totals`
-            # written below cover the same information at summary level.
+        # Pull default frame spec (height_ft, bracing_ft) from the drawing's
+        # OCR text via Gemini.
+        frame_spec = extract_default_frame_spec(data.get('extracted_text', ''))
+        if frame_spec is not None:
+            data['default_frame_spec'] = frame_spec
 
-            # Aggregate overall crossbar and frame totals
-            crossbar_totals = {}
-            frame_totals = {}
-            frame_null_count = 0
-            for container_id, info in all_summary.items():
-                cb = info.get('crossbar', 7)
-                fr = info.get('frame')
-                crossbar_totals[cb] = crossbar_totals.get(cb, 0) + 1
-                if fr is not None:
-                    frame_totals[fr] = frame_totals.get(fr, 0) + 1
-                else:
-                    frame_null_count += 1
+        # Store the cross bar lookup tables (frame size + span -> size + color).
+        data['cross_bar_tables'] = CROSS_BAR_TABLES
 
-            data['crossbar_totals'] = {f"crossbar_{k}": v for k, v in sorted(crossbar_totals.items())}
-            data['crossbar_totals']['total'] = sum(crossbar_totals.values())
-            data['frame_totals'] = {f"frame_{k}": v for k, v in sorted(frame_totals.items())}
-            data['frame_totals']['frame_null'] = frame_null_count
-            data['frame_totals']['total'] = sum(frame_totals.values()) + frame_null_count
-            with open(data_path, 'w') as f:
-                json.dump(data, f, indent=4)
-            print(f"\n✅ Saved glyph totals to data.json")
+        with open(data_path, 'w') as f:
+            json.dump(data, f, indent=4)
+        print(f"\n✅ Saved default frame spec to data.json")
+
+        # ── Draw crossbar color lines on Step13.svg ──
+        # For now every green container takes the default frame spec, so the
+        # cross bar color is the same for all. Height 6 -> "6' & 5'" table,
+        # bracing 7 -> span 7' -> 7x4 -> Yellow.
+        default_color = "Yellow"
+        color_hex = CROSS_BAR_COLOR_HEX.get(default_color, "#ffff00")
+        if os.path.exists(out_path):
+            with open(out_path, 'r', encoding='utf-8') as f:
+                svg_content = f.read()
+            svg_content, n_lines = add_crossbar_lines(svg_content, color_hex)
+            with open(out_path, 'w', encoding='utf-8') as f:
+                f.write(svg_content)
+            print(f"✅ Added {default_color} crossbar lines to {n_lines} annotation(s) (2 per annotation) in Step13.svg")
 
         print(f"\n✓ Step13 completed")
         return success
