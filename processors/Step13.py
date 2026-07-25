@@ -137,12 +137,18 @@ GLYPH_SIGNATURES = {
         # measurement (e.g. 5'6"), not a cross-bar size.
         re.compile(r'^-?[45],-?[45]\s+-?2[01],-?[23]\d\s+z\s+m\s+-?[45],-?[45]\s+-?2[01],-?[23]\d'),
         # Small comma-shaped prime tick, e.g.
-        # "2,-2 -2,-2 -2,2 2,2 h 4 l 4,-2 2,-2" (and slight variants such as a
-        # trailing "3,-2"). Same meaning: a dimension foot/inch mark.
-        re.compile(r'^2,-[23]\s+-2,-[23]\s+-2,[23]\s+2,2\s+h\s+[45]\s+l\s+[45],-2\s+[23],-2$'),
+        # "2,-2 -2,-2 -2,2 2,2 h 4 l 4,-2 2,-2". All coordinates jitter between
+        # 2 and 3 (either sign) across drawings, so match the STRUCTURE: four
+        # small coord pairs, "h N l", then two small coord pairs. Same meaning:
+        # a dimension foot/inch mark.
+        re.compile(r'^-?[23],-?[23]\s+-?[23],-?[23]\s+-?[23],-?[23]\s+-?[23],-?[23]'
+                   r'\s+h\s+[45]\s+l\s+-?[2345],-?[23]\s+-?[23],-?[23]$'),
         # Vertical-orientation prime tick (tall/narrow), e.g.
-        # "-2,-3 -2,3 2,2 2,-2 v -5 l -2,-4 -2,-2". Same dimension mark.
-        re.compile(r'^-2,-[23]\s+-2,[23]\s+2,2\s+2,-2\s+v\s+-[45]\s+l\s+-2,-[34]\s+-2,-2$'),
+        # "-2,-3 -2,3 2,2 2,-2 v -5 l -2,-4 -2,-2". Coordinates jitter between
+        # 2 and 3 (either sign) across drawings, so match the STRUCTURE: four
+        # small coord pairs, "v -N l", then two small coord pairs.
+        re.compile(r'^-?[23],-?[23]\s+-?[23],-?[23]\s+-?[23],-?[23]\s+-?[23],-?[23]'
+                   r'\s+v\s+-[45]\s+l\s+-?[23],-?[2345]\s+-?[23],-?[23]$'),
     ],
 }
 
@@ -776,6 +782,40 @@ def read_container_span(container, paths, default_span):
     return f"{first['digit']}'"
 
 
+def warn_unmatched_apostrophes(containers, paths):
+    """
+    Safeguard: an apostrophe/foot mark is a small glyph that sits right next to
+    a digit. If detection ever fails to classify one (digit=None), the frame
+    count silently drops. Scan for small unidentified glyphs adjacent to a
+    digit and warn loudly so a new coordinate variant can't regress unnoticed.
+
+    Returns the list of suspects [(container_id, rel_d), ...].
+    """
+    an = find_glyph_paths(find_contained_paths(containers, paths))
+    suspects = []
+    for num, d in an.items():
+        digits = [g for g in d['glyphs'] if g['digit'] in ('3', '4', '5', '6', '7')]
+        for g in d['glyphs']:
+            if g['digit'] is None and g['width'] < 3.5 and g['height'] < 3.5:
+                gx = (g['screen_bbox'][0] + g['screen_bbox'][2]) / 2
+                gy = (g['screen_bbox'][1] + g['screen_bbox'][3]) / 2
+                near = any(
+                    abs((dd['screen_bbox'][0] + dd['screen_bbox'][2]) / 2 - gx) < 6 and
+                    abs((dd['screen_bbox'][1] + dd['screen_bbox'][3]) / 2 - gy) < 6
+                    for dd in digits
+                )
+                if near:
+                    suspects.append((containers[num]['id'], g['rel_d']))
+    if suspects:
+        print(f"⚠️  Step13: {len(suspects)} small unidentified glyph(s) sit next "
+              f"to a digit — likely MISSED apostrophe/dimension marks. Frame "
+              f"counts may be wrong. Add these rel_d shapes to the 'apostrophe' "
+              f"signature:")
+        for cid, rel in suspects:
+            print(f"     {cid}: {rel[:60]}")
+    return suspects
+
+
 def read_container_frames(container, paths, default_height):
     """
     Read the FRAMES for a green container from its apostrophe/dimension
@@ -834,39 +874,54 @@ def read_container_frames(container, paths, default_height):
     return stack * 2
 
 
-def color_for_span(span):
+def _table_for_height(height):
+    """Pick the cross bar table whose frame_sizes include this height (ft)."""
+    key = f"{int(height)}'"
+    for table in CROSS_BAR_TABLES:
+        if key in table["frame_sizes"]:
+            return table
+    return None
+
+
+def color_for_frame(height, span):
     """
-    Look up the cross bar color for a span using the 6' & 5' frame table
-    (frame height stays at the drawing default of 6). Returns a hex color;
-    falls back to Yellow if the span isn't in the table.
+    Look up the cross bar color for one frame: the frame HEIGHT picks the
+    table (6'&5' vs 4'&3'), the SPAN picks the row. Returns (hex, name);
+    falls back to Yellow if no match.
     """
-    for row in CROSS_BAR_TABLES[0]["rows"]:  # 6' & 5' table
-        if row["span"] == span:
-            return CROSS_BAR_COLOR_HEX.get(row["color"], "#ffff00"), row["color"]
+    table = _table_for_height(height)
+    if table is not None:
+        for row in table["rows"]:
+            if row["span"] == span:
+                return CROSS_BAR_COLOR_HEX.get(row["color"], "#ffff00"), row["color"]
     return "#ffff00", "Yellow"
 
 
-def add_crossbar_lines(svg_content, paths, default_span, default_height):
+def color_for_span(span):
     """
-    For every green_container:
-      - read its span (cross-bar size) -> line color
+    Backwards-compatible helper: color for a default-height (6') frame at the
+    given span.
+    """
+    return color_for_frame(6, span)
+
+
+def add_crossbar_lines(svg_content, paths, default_span, default_height,
+                       prefixes=('green_container', 'orange_container')):
+    """
+    For every container of the given prefixes:
+      - read its span (cross-bar size) -> picks the table row
       - read its frames from apostrophe dimension numbers (each apostrophe
-        number is one frame's height; default is a single frame at
-        `default_height`)
-    Draw ONE short vertical line PER FRAME in the cross-bar color, at the
-    bottom-left, inside the container.
+        number is one frame's height; default is `default_height`)
+    Each frame's own HEIGHT picks the table (6'&5' vs 4'&3') and the span
+    picks the row, so a mixed stack like "5'+4'" gets DIFFERENT colors per
+    frame. Draw ONE short vertical line PER FRAME in that frame's color, at
+    the bottom-left, inside the container.
 
     Returns (svg_content, count, color_breakdown, frame_breakdown).
     """
     line_els = []
     color_counts = {}
     frame_counts = {}
-    # Match each green_container rect (id + x/y/width/height attributes).
-    rect_re = re.compile(
-        r'<rect\s+id="green_container_(\d+)"\s+x="([\d.]+)"\s+y="([\d.]+)"'
-        r'\s+width="([\d.]+)"\s+height="([\d.]+)"',
-        re.DOTALL,
-    )
     count = 0
     # Short lines (~ the 8px label height), just inside the container's left
     # edge, aligned to the bottom, one per frame spaced horizontally.
@@ -874,30 +929,36 @@ def add_crossbar_lines(svg_content, paths, default_span, default_height):
     INSET = 3.0
     BOTTOM_PAD = 3.0
     GAP = 3.0  # horizontal gap between frame lines
-    for m in rect_re.finditer(svg_content):
-        num, x, y, w, h = m.groups()
-        x = float(x); y = float(y); w = float(w); h = float(h)
+    for prefix in prefixes:
+        # Match each <prefix>_N rect (id + x/y/width/height attributes).
+        rect_re = re.compile(
+            r'<rect\s+id="' + re.escape(prefix) + r'_(\d+)"\s+x="([\d.]+)"\s+y="([\d.]+)"'
+            r'\s+width="([\d.]+)"\s+height="([\d.]+)"',
+            re.DOTALL,
+        )
+        for m in rect_re.finditer(svg_content):
+            num, x, y, w, h = m.groups()
+            x = float(x); y = float(y); w = float(w); h = float(h)
 
-        container = {'id': f'green_container_{num}',
-                     'screen_bbox': (x, y, x + w, y + h)}
-        span = read_container_span(container, paths, default_span)
-        color_hex, color_name = color_for_span(span)
-        color_counts[color_name] = color_counts.get(color_name, 0) + 1
+            container = {'id': f'{prefix}_{num}',
+                         'screen_bbox': (x, y, x + w, y + h)}
+            span = read_container_span(container, paths, default_span)
+            frames = read_container_frames(container, paths, default_height)
+            n_frames = len(frames)
+            frame_counts[n_frames] = frame_counts.get(n_frames, 0) + 1
 
-        frames = read_container_frames(container, paths, default_height)
-        n_frames = len(frames)
-        frame_counts[n_frames] = frame_counts.get(n_frames, 0) + 1
-
-        y2 = y + h - BOTTOM_PAD
-        y1 = y2 - LINE_LEN
-        for i in range(n_frames):
-            lx = x + INSET + i * GAP
-            line_els.append(
-                f'    <line id="crossbar_line_green_{num}_{i + 1}" '
-                f'x1="{lx}" y1="{y1}" x2="{lx}" y2="{y2}" '
-                f'style="stroke:{color_hex};stroke-width:2;stroke-opacity:1" />'
-            )
-        count += 1
+            y2 = y + h - BOTTOM_PAD
+            y1 = y2 - LINE_LEN
+            for i, frame_height in enumerate(frames):
+                color_hex, color_name = color_for_frame(frame_height, span)
+                color_counts[color_name] = color_counts.get(color_name, 0) + 1
+                lx = x + INSET + i * GAP
+                line_els.append(
+                    f'    <line id="crossbar_line_{prefix}_{num}_{i + 1}" '
+                    f'x1="{lx}" y1="{y1}" x2="{lx}" y2="{y2}" '
+                    f'style="stroke:{color_hex};stroke-width:2;stroke-opacity:1" />'
+                )
+            count += 1
 
     if line_els:
         block = "\n" + "\n".join(line_els) + "\n"
@@ -1060,7 +1121,14 @@ def run_step13():
 
         if os.path.exists(out_path):
             import xml.etree.ElementTree as _ET
-            green_paths = get_g10_paths(_ET.parse(out_path).getroot())
+            _root = _ET.parse(out_path).getroot()
+            green_paths = get_g10_paths(_root)
+
+            # Safeguard: warn if any apostrophe/dimension mark was missed, so a
+            # new coordinate variant can't silently corrupt the frame counts.
+            for _pre in ('green_container', 'orange_container'):
+                warn_unmatched_apostrophes(get_containers(_root, _pre), green_paths)
+
             with open(out_path, 'r', encoding='utf-8') as f:
                 svg_content = f.read()
             svg_content, n_lines, color_counts, frame_counts = add_crossbar_lines(
