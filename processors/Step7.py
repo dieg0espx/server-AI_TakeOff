@@ -18,6 +18,17 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 
+# --- Red-square (Post Shore #4) detection rules --------------------------
+# A real Post Shore #4 marker in the drawing renders as an ~11x11 px square
+# (area ~121). Anti-aliasing/noise can leave tiny sub-marker specks (e.g. a
+# 5x5 blob, area 25) that are the SAME red but are NOT shores. Counting them
+# over-reports Post Shore #4 (the "8 vs 7" bug). These floors reject any
+# contour too small to be a genuine marker. Keep them well below the real
+# 11x11 size but above the noise floor so both stay robust.
+MIN_SQUARE_SIDE = 8      # px; a real marker is ~11, noise specks are <=5
+MIN_SQUARE_AREA = 50     # contour area; real ~121, noise ~25
+
+
 # Shores pattern for detecting specific path elements
 shores = re.compile(
     r'<path[^>]+d="[^"]*m\s*(-?\d+),(-?\d+)\s+('
@@ -263,17 +274,20 @@ def detect_red_squares(image_path, output_path='results.png', json_output_path=N
         x, y, w, h = cv2.boundingRect(contour)
         aspect_ratio = w / h if h > 0 else 0
         
-        # Filter by area (adjust these values based on your square sizes)
-        if 5 < area < 10000:  # Even broader range to catch all potential squares
+        # Filter by area. MIN_SQUARE_AREA rejects sub-marker noise specks that
+        # share the shore color but are far too small to be a real Post Shore
+        # #4 (see rule constants at top of file).
+        if MIN_SQUARE_AREA < area < 10000:
             # Check aspect ratio (squares should be roughly square)
             # Ensure width/height ratio is within 3.0 tolerance (very lenient)
             if 0.3 < aspect_ratio < 3.0:  # Very lenient aspect ratio
-                # Additional check: ensure reasonable size
-                if w >= 2 and h >= 2:  # Very reduced minimum size requirement
+                # Minimum side length: a genuine marker is ~11px per side;
+                # anything below MIN_SQUARE_SIDE is noise, not a shore.
+                if w >= MIN_SQUARE_SIDE and h >= MIN_SQUARE_SIDE:
                     valid_contours.append((contour, x, y, w, h, area))
                     print(f"Contour {i}: Area={area:.1f}, Size={w}x{h}, Aspect={aspect_ratio:.2f} - ACCEPTED")
                 else:
-                    print(f"Contour {i}: Area={area:.1f}, Size={w}x{h}, Aspect={aspect_ratio:.2f} - REJECTED (size)")
+                    print(f"Contour {i}: Area={area:.1f}, Size={w}x{h}, Aspect={aspect_ratio:.2f} - REJECTED (size < {MIN_SQUARE_SIDE}px, noise)")
             else:
                 print(f"Contour {i}: Area={area:.1f}, Size={w}x{h}, Aspect={aspect_ratio:.2f} - REJECTED (aspect)")
         else:

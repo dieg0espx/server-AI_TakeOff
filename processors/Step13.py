@@ -1139,6 +1139,21 @@ def run_step13():
             print(f"   Color breakdown: {color_counts}")
             print(f"   Frames-per-annotation breakdown: {frame_counts}")
 
+            # Crossbar counts ARE the annotation lines: one colored line was
+            # drawn per frame, so each color's line count is that crossbar
+            # color's total. Persist these to data.json for Step13b/downstream.
+            crossbar_totals = {f"crossbar_{name}": n
+                               for name, n in sorted(color_counts.items())}
+            crossbar_totals['total'] = sum(color_counts.values())
+            frame_totals = {f"frame_{k}": v
+                            for k, v in sorted(frame_counts.items())}
+            frame_totals['total'] = sum(frame_counts.values())
+            data['crossbar_totals'] = crossbar_totals
+            data['frame_totals'] = frame_totals
+            with open(data_path, 'w') as f:
+                json.dump(data, f, indent=4)
+            print(f"✅ Saved crossbar_totals/frame_totals to data.json")
+
         print(f"\n✓ Step13 completed")
         return success
 
