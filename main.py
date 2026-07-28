@@ -571,6 +571,22 @@ def run_pipeline_with_logging(upload_id: str):
     except Exception as wood_err:
         print(f"⚠️  Could not merge wood-beam totals into data.json: {wood_err}")
 
+    # Step18: per-category highlight SVGs (shores/alumBeams/frames/wood).
+    # Must run BEFORE the cleanup below wipes files/groups + files/tempData,
+    # since wood.svg reads the per-group wood SVGs and the others read
+    # identified_elements.json.
+    try:
+        print(f"\n{'='*60}")
+        print("📋 Running Step18 (per-category highlight SVGs)")
+        print(f"{'='*60}")
+        from processors.Step18 import run_step18
+        if run_step18():
+            print("✅ Step18 completed")
+        else:
+            print("⚠️  Step18 failed, continuing...")
+    except Exception as e:
+        print(f"⚠️  Error in Step18: {e}")
+
     # ── Archive intermediate files to ~/Desktop/OUTPUT/<TIMESTAMP>/ then clean up ──
     try:
         files_dir = "files"

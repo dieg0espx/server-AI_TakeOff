@@ -905,6 +905,41 @@ def color_for_span(span):
     return color_for_frame(6, span)
 
 
+def _tri_color_diagonal(id_base, p0, p1, color_hex, stroke_width=2.0,
+                        end_frac=0.18):
+    """
+    Build a crossbar brace as a diagonal that runs corner-to-corner from p0 to
+    p1, colored like the reference: the two END sections carry the frame's
+    cross-bar `color_hex`, and the long MIDDLE section is white.
+
+    `end_frac` is the fraction of the line length each colored end occupies
+    (so ~18% color, ~64% white, ~18% color). Returns a list of 3 <line>
+    element strings.
+    """
+    (x0, y0), (x1, y1) = p0, p1
+    dx, dy = x1 - x0, y1 - y0
+
+    def pt(t):
+        return (x0 + dx * t, y0 + dy * t)
+
+    a = pt(end_frac)          # end of first colored tip
+    b = pt(1.0 - end_frac)    # start of second colored tip
+    style_c = f"stroke:{color_hex};stroke-width:{stroke_width};stroke-opacity:1"
+    style_w = f"stroke:#ffffff;stroke-width:{stroke_width};stroke-opacity:1"
+    seg = []
+    for i, ((sx, sy), (ex, ey), st) in enumerate((
+            (p0, a, style_c),      # colored tip near p0
+            (a, b, style_w),       # white middle
+            (b, p1, style_c),      # colored tip near p1
+    )):
+        seg.append(
+            f'    <line id="{id_base}_{i + 1}" '
+            f'x1="{sx:.2f}" y1="{sy:.2f}" x2="{ex:.2f}" y2="{ey:.2f}" '
+            f'style="{st}" />'
+        )
+    return seg
+
+
 def add_crossbar_lines(svg_content, paths, default_span, default_height,
                        prefixes=('green_container', 'orange_container')):
     """
@@ -914,8 +949,15 @@ def add_crossbar_lines(svg_content, paths, default_span, default_height,
         number is one frame's height; default is `default_height`)
     Each frame's own HEIGHT picks the table (6'&5' vs 4'&3') and the span
     picks the row, so a mixed stack like "5'+4'" gets DIFFERENT colors per
-    frame. Draw ONE short vertical line PER FRAME in that frame's color, at
-    the bottom-left, inside the container.
+    frame.
+
+    Drawing: one crossbar X per container, spanning corner-to-corner like a
+    real brace. The X is two diagonals (\\ and /); each diagonal is tri-colored
+    with the frame's cross-bar color at the ends and white in the middle. When
+    a container's frames resolve to two DIFFERENT colors, the two diagonals take
+    those two colors (e.g. red \\ + yellow /); otherwise both diagonals share
+    the single color. Color/frame counts are still tallied PER FRAME so the
+    downstream crossbar_totals stay accurate.
 
     Returns (svg_content, count, color_breakdown, frame_breakdown).
     """
@@ -923,12 +965,10 @@ def add_crossbar_lines(svg_content, paths, default_span, default_height,
     color_counts = {}
     frame_counts = {}
     count = 0
-    # Short lines (~ the 8px label height), just inside the container's left
-    # edge, aligned to the bottom, one per frame spaced horizontally.
-    LINE_LEN = 8.0
-    INSET = 3.0
-    BOTTOM_PAD = 3.0
-    GAP = 3.0  # horizontal gap between frame lines
+    INSET = 3.0        # keep the X just inside the container edges
+    STROKE = 2.0
+    HALF_GAP = 2.0     # gap between the left-half and right-half X's
+    GAP = 3.0          # offset between overlapping per-color (stacked) X's
     for prefix in prefixes:
         # Match each <prefix>_N rect (id + x/y/width/height attributes).
         rect_re = re.compile(
@@ -947,17 +987,39 @@ def add_crossbar_lines(svg_content, paths, default_span, default_height,
             n_frames = len(frames)
             frame_counts[n_frames] = frame_counts.get(n_frames, 0) + 1
 
-            y2 = y + h - BOTTOM_PAD
-            y1 = y2 - LINE_LEN
-            for i, frame_height in enumerate(frames):
+            # Tally the color for EVERY frame (downstream totals depend on this).
+            frame_colors = []
+            for frame_height in frames:
                 color_hex, color_name = color_for_frame(frame_height, span)
                 color_counts[color_name] = color_counts.get(color_name, 0) + 1
-                lx = x + INSET + i * GAP
-                line_els.append(
-                    f'    <line id="crossbar_line_{prefix}_{num}_{i + 1}" '
-                    f'x1="{lx}" y1="{y1}" x2="{lx}" y2="{y2}" '
-                    f'style="stroke:{color_hex};stroke-width:2;stroke-opacity:1" />'
-                )
+                frame_colors.append(color_hex)
+
+            # `frames` is the per-side stack duplicated across 2 sides. Layout:
+            #   - The box is split into a LEFT half and a RIGHT half, so a
+            #     single frame shows a DOUBLE X (one X per half, side by side).
+            #   - Within EACH half, every distinct stack color draws its own
+            #     FULL-HEIGHT X, overlapping and offset by GAP px so the colors
+            #     read separately — e.g. a "5'+4'" stack shows a red X and a
+            #     yellow X overlapping in each half.
+            n_rows = max(1, n_frames // 2)
+            # One color per stack level, first-seen order preserved.
+            colors = list(dict.fromkeys(frame_colors[:n_rows])) or ["#ffff00"]
+
+            base = f"crossbar_line_{prefix}_{num}"
+            yt, yb = y + INSET, y + h - INSET
+            mid = x + w / 2.0
+            # Left half + right half, split horizontally with a small gap.
+            cells = [(x + INSET, mid - HALF_GAP / 2.0),
+                     (mid + HALF_GAP / 2.0, x + w - INSET)]
+            for si, (cx0, cx1) in enumerate(cells):
+                for ci, color_hex in enumerate(colors):
+                    off = ci * GAP  # offset each overlapping color X
+                    b = f"{base}_s{si + 1}_c{ci + 1}"
+                    # "\" top-left -> bottom-right, then "/" top-right -> bottom-left
+                    line_els += _tri_color_diagonal(
+                        f"{b}_d1", (cx0 + off, yt), (cx1 + off, yb), color_hex, STROKE)
+                    line_els += _tri_color_diagonal(
+                        f"{b}_d2", (cx1 + off, yt), (cx0 + off, yb), color_hex, STROKE)
             count += 1
 
     if line_els:

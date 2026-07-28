@@ -407,14 +407,19 @@ def add_containers_to_svg(svg_content, green_rectangles, pink_rectangles, x_shap
         cy = rect.get('center_y', rect['y'] + rect['height'] / 2)
         return _cluster_shore_angle(cx, cy, shore_markers)
 
-    # Create container elements for green frames (green borders)
+    # All frame types are drawn GREEN. Detection still runs per color
+    # (green/pink/orange/yellow) and each keeps its own container prefix so
+    # downstream steps (Step13/16/17) can still identify them, but visually
+    # every frame is a single unified green frame type. Shores (blue X shapes
+    # and red squares) are NOT frames and keep their own colors.
+    FRAME_COLOR = '#70ff00'
     container_elements = []
     for rect in green_rectangles:
-        container_elements.append(create_rectangle_element(rect, color='#70ff00', prefix='green_container'))
+        container_elements.append(create_rectangle_element(rect, color=FRAME_COLOR, prefix='green_container'))
 
-    # Create container elements for pink frames (pink borders)
+    # Pink frames -> drawn green
     for rect in pink_rectangles:
-        container_elements.append(create_rectangle_element(rect, color='#ff69b4', prefix='pink_container'))
+        container_elements.append(create_rectangle_element(rect, color=FRAME_COLOR, prefix='pink_container'))
 
     # Create container elements for X shapes (blue borders)
     for rect in x_shapes:
@@ -425,14 +430,14 @@ def add_containers_to_svg(svg_content, green_rectangles, pink_rectangles, x_shap
     for rect in red_squares:
         container_elements.append(create_rectangle_element(
             rect, color='#ff0000', prefix='red_square', angle=_shore_angle_for(rect)))
-    
-    # Create container elements for orange frames (orange borders)
-    for rect in orange_rectangles:
-        container_elements.append(create_rectangle_element(rect, color='#fb7905', prefix='orange_container'))
 
-    # Create container elements for yellow frames (yellow borders)
+    # Orange frames -> drawn green
+    for rect in orange_rectangles:
+        container_elements.append(create_rectangle_element(rect, color=FRAME_COLOR, prefix='orange_container'))
+
+    # Yellow frames -> drawn green
     for rect in yellow_rectangles:
-        container_elements.append(create_rectangle_element(rect, color='#ffff00', prefix='yellow_container'))
+        container_elements.append(create_rectangle_element(rect, color=FRAME_COLOR, prefix='yellow_container'))
 
     # Insert container elements before closing </svg> tag
     containers_svg = '\n'.join(container_elements)
@@ -617,6 +622,15 @@ _EXTENT_TOL = 2.0       # min overlap along the shared direction
 # confirms a beam even when that neighbor is a SHORT segment (an opposite rail
 # broken into pieces, or a cross-tie) rather than a full beam-length rail.
 _RAIL_SPACING_MAX = 10.0  # world units
+# Upper bound on the perpendicular gap to a FULL beam-length partner rail. The
+# second acceptance clause (partner is itself a beam-length candidate) used to
+# accept a partner at ANY distance, which let two far-apart parallel dimension/
+# leader lines that merely share a beam's nominal length validate each other as
+# a "beam". Measured real rails cluster tightly at ~6 units (max ~10); genuine
+# beams never exceed this. Everything past it (27, 42, 428 units observed) is a
+# dimension line, not a rail — so a beam-length partner only counts within this
+# gap. Keeps the real ~6-unit cluster + margin, drops the 27+ noise band.
+_BEAMLEN_PARTNER_MAX = 20.0  # world units
 # Min world length for a segment to serve as a partner rail. The opposite rail
 # is often split into short pieces (~48 world units here), so this must stay
 # well below that; it only filters out tiny arrowhead/tick stubs.
@@ -765,8 +779,12 @@ def mark_alum_beams_by_dimension(svg_content, target_dimension, stroke_color, to
             d_min, d_max = _project_extent(ux, uy, dx1, dy1, dx2, dy2)
             if min(c_max, d_max) - max(c_min, d_min) <= _EXTENT_TOL:
                 continue
-            # Accept if it's the tight opposite rail, or a full beam-length rail.
-            if offset <= _RAIL_SPACING_MAX or _id_d in beamlen_ids:
+            # Accept if it's the tight opposite rail, or a full beam-length
+            # rail — but a beam-length partner only counts within
+            # _BEAMLEN_PARTNER_MAX, else far-apart dimension lines self-validate.
+            if offset <= _RAIL_SPACING_MAX:
+                return True
+            if _id_d in beamlen_ids and offset <= _BEAMLEN_PARTNER_MAX:
                 return True
         return False
 
