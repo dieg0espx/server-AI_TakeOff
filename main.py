@@ -471,7 +471,8 @@ def run_pipeline_with_logging(upload_id: str):
     except Exception as e:
         print(f"⚠️  Error in Step16: {e}")
 
-    # Upload BOTH Step10 SVGs to TTF SVG API
+    # Upload the Step11 result SVG to TTF SVG API. The Step18 per-category
+    # layer SVGs are uploaded further down, once Step18 has produced them.
     upload_ok = True
     try:
         print(f"\n📤 Uploading SVGs to TTF API...")
@@ -586,6 +587,56 @@ def run_pipeline_with_logging(upload_id: str):
             print("⚠️  Step18 failed, continuing...")
     except Exception as e:
         print(f"⚠️  Error in Step18: {e}")
+
+    # Upload Step18's per-category highlight SVGs. This has to sit here — after
+    # Step18 writes them, and before the cleanup below wipes files/. The URLs
+    # ride to the database twice: create.php stores data.json's svg_urls map on
+    # insert (Step15), and update_svg.php re-sends it afterwards as a backstop.
+    try:
+        print(f"\n📤 Uploading Step18 layer SVGs to TTF FTP...")
+        from api.cloudinary_manager import upload_svg_to_api
+
+        layer_urls = {}
+        for layer in ("alumBeams", "crossbars", "frames", "shores", "wood"):
+            layer_path = os.path.join("files", f"{layer}.svg")
+            if not os.path.exists(layer_path):
+                # Step18 skips a layer when its inputs are missing (e.g. no
+                # Step13.svg -> no crossbars.svg); not an upload failure.
+                print(f"⚠️  {layer_path} not found — skipping")
+                continue
+            # Distinct label per layer: the remote name is timestamped only to
+            # the second, so unlabeled uploads would overwrite each other.
+            layer_url = upload_svg_to_api(layer_path, label=layer)
+            if layer_url:
+                layer_urls[layer] = layer_url
+                print(f"✅ {layer}.svg uploaded: {layer_url}")
+            else:
+                upload_ok = False
+                print(f"⚠️  Failed to upload {layer}.svg")
+
+        if layer_urls:
+            # Re-read data.json: Step14/16/17 wrote to it after our in-memory
+            # copy was taken, so merge into the on-disk version rather than
+            # writing back stale fields.
+            data_on_disk = None
+            try:
+                with open(data_file, 'r') as f:
+                    data_on_disk = json.load(f)
+            except Exception as reload_err:
+                print(f"⚠️  Could not reload data.json before layer-URL write: {reload_err}")
+
+            if data_on_disk is not None:
+                data_on_disk.setdefault('svg_urls', {}).update(layer_urls)
+                with open(data_file, 'w') as f:
+                    json.dump(data_on_disk, f, indent=4)
+                data = data_on_disk
+                print(f"✅ {len(layer_urls)} layer SVG URL(s) merged into {data_file}")
+            else:
+                upload_ok = False
+                print(f"⚠️  Layer SVGs uploaded but their URLs were not saved to {data_file}")
+    except Exception as e:
+        upload_ok = False
+        print(f"⚠️  Error uploading layer SVGs to TTF FTP: {str(e)}")
 
     # ── Archive intermediate files to ~/Desktop/OUTPUT/<TIMESTAMP>/ then clean up ──
     try:
@@ -948,9 +999,11 @@ async def process_ai_takeoff_sync(upload_id: str, company: str = None, jobsite: 
                                         print(f"\n📝 Updating database with SVG URLs...")
                                         from api.cloudinary_manager import update_svg_in_database
 
-                                        svg_url = data_updated.get('svg_urls', {}).get('step11')
+                                        all_svg_urls = data_updated.get('svg_urls', {})
+                                        svg_url = all_svg_urls.get('step11')
                                         if svg_url:
-                                            if update_svg_in_database(tracking_url, svg_url):
+                                            if update_svg_in_database(tracking_url, svg_url,
+                                                                      svg_files=all_svg_urls):
                                                 print(f"✅ SVG URL saved to database")
                                             else:
                                                 print(f"⚠️  Failed to update SVG URL in database")

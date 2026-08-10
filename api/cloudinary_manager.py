@@ -2,6 +2,7 @@ import os
 import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
+import re
 import requests
 import ftplib
 from datetime import datetime
@@ -20,13 +21,19 @@ PUBLIC_URL_BASE = "https://ftp-images.ttfconstruction.com/AI-takeOff"
 UPDATE_SVG_API_URL = "https://ttfconstruction.com/ai-takeoff-results/update_svg.php"
 
 
-def update_svg_in_database(tracking_url: str, svg_url: str) -> bool:
+def update_svg_in_database(tracking_url: str, svg_url: str,
+                           svg_files: Optional[dict] = None) -> bool:
     """
     Update the SVG URL in the database for a given tracking URL
 
     Args:
         tracking_url: The tracking URL of the record to update
-        svg_url: The URL of the uploaded SVG file
+        svg_url: The URL of the uploaded SVG file (stored in svg_file)
+        svg_files: Optional {layer: url} map for the per-category layer SVGs
+            (step11, alumBeams, crossbars, frames, shores, wood). Stored as
+            JSON in the svg_files column. create.php already persists this map
+            from the data.json payload; passing it here refreshes it for URLs
+            that were uploaded after the record was inserted.
 
     Returns:
         True if update was successful, False otherwise
@@ -34,12 +41,17 @@ def update_svg_in_database(tracking_url: str, svg_url: str) -> bool:
     try:
         print(f"📝 Updating database with SVG URL for tracking: {tracking_url}")
 
+        payload = {
+            'tracking_url': tracking_url,
+            'svg_url': svg_url
+        }
+        if svg_files:
+            payload['svg_files'] = svg_files
+            print(f"   + {len(svg_files)} layer SVG URL(s) -> svg_files")
+
         response = requests.post(
             UPDATE_SVG_API_URL,
-            json={
-                'tracking_url': tracking_url,
-                'svg_url': svg_url
-            },
+            json=payload,
             headers={'Content-Type': 'application/json'},
             timeout=30
         )
@@ -61,19 +73,30 @@ def update_svg_in_database(tracking_url: str, svg_url: str) -> bool:
         return False
 
 
-def upload_svg_to_api(file_path: str) -> Optional[str]:
+def upload_svg_to_api(file_path: str, label: Optional[str] = None) -> Optional[str]:
     """
     Upload an SVG file directly to the TTF FTP server, returning the public URL.
 
     Replaces the previous HTTP upload to a Vercel proxy, which had a 4.5MB
     function-body limit. FTP has no such limit.
+
+    Args:
+        file_path: Local SVG to upload
+        label: Optional suffix for the remote filename. The timestamp alone is
+            only per-second, so several SVGs uploaded back-to-back would collide
+            and overwrite each other on the FTP server. Callers that upload more
+            than one file per run must pass a distinct label per file.
     """
     if not os.path.exists(file_path):
         print(f"❌ SVG file not found: {file_path}")
         return None
 
     timestamp = datetime.now().strftime("%m_%d_%Y_%H_%M_%S")
-    remote_filename = f"{timestamp}.svg"
+    if label:
+        safe_label = re.sub(r'[^A-Za-z0-9_-]', '_', label)
+        remote_filename = f"{timestamp}_{safe_label}.svg"
+    else:
+        remote_filename = f"{timestamp}.svg"
     remote_path = f"{FTP_REMOTE_DIR}/{remote_filename}"
     size = os.path.getsize(file_path)
     print(f"📤 Uploading {file_path} ({size/1024/1024:.2f} MB) to FTP as {remote_path}...")
