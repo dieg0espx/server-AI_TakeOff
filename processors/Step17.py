@@ -63,6 +63,7 @@ BEAM_FILL_COLORS = {"#4e4e4e", "#ffffff"}
 # Aluminum beam size palette — stroke color → (size_name, nominal_length, tolerance).
 # Mirrors Step11.mark_alum_beams_by_dimension's palette (Step11.py:464-476).
 ALUM_BEAM_COLORS = {
+    "#00a000": ("alumBeam24",   1800, 1),
     "#a020f0": ("alumBeam20",   1500, 1),
     "#ffd400": ("alumBeam18",   1350, 1),
     "#ffffff": ("alumBeam16",   1201, 1),

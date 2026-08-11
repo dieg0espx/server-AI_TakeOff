@@ -348,48 +348,17 @@ def print_drawn_objects(green_rectangles, pink_rectangles, x_shapes, red_squares
 
 def add_containers_to_svg(svg_content, green_rectangles, pink_rectangles, x_shapes, red_squares, orange_rectangles, yellow_rectangles):
     """Add container rectangles to SVG content"""
-    # Find the opening <svg> tag to get viewBox dimensions
+    # Find the opening <svg> tag.
     svg_start_pos = svg_content.find('<svg')
     if svg_start_pos == -1:
         print("Error: Could not find opening <svg> tag")
         return None
-    
-    # Extract viewBox from SVG tag
-    svg_tag_end = svg_content.find('>', svg_start_pos)
-    svg_tag = svg_content[svg_start_pos:svg_tag_end + 1]
-    
-    # Try to extract viewBox dimensions
-    import re
-    viewbox_match = re.search(r'viewBox="([^"]*)"', svg_tag)
-    if viewbox_match:
-        viewbox = viewbox_match.group(1).split()
-        if len(viewbox) >= 4:
-            width = float(viewbox[2])
-            height = float(viewbox[3])
-        else:
-            # Fallback dimensions if viewBox is not found
-            width = 3000
-            height = 2000
-    else:
-        # Fallback dimensions if viewBox is not found
-        width = 3000
-        height = 2000
-    
-    # Create dark gray background rectangle
-    background_element = f'''
-    <rect
-       id="background"
-       x="0"
-       y="0"
-       width="{width}"
-       height="{height}"
-       style="fill:#1c1c1c;stroke:none" />
-    '''
-    
-    # Insert background right after the opening <svg> tag
-    svg_tag_end_pos = svg_content.find('>', svg_start_pos) + 1
-    svg_with_background = svg_content[:svg_tag_end_pos] + '\n' + background_element + svg_content[svg_tag_end_pos:]
-    
+
+    # No background rect is injected: Step11.svg must render with a transparent
+    # canvas so it can overlay cleanly. The #4e4e4e backdrop inherited from
+    # Step2 is stripped later (see _BG_4E_RECT_RE), leaving no full-canvas fill.
+    svg_with_background = svg_content
+
     # Find the closing </svg> tag
     svg_end_pos = svg_with_background.rfind('</svg>')
     if svg_end_pos == -1:
@@ -626,15 +595,62 @@ _RAIL_SPACING_MAX = 10.0  # world units
 # second acceptance clause (partner is itself a beam-length candidate) used to
 # accept a partner at ANY distance, which let two far-apart parallel dimension/
 # leader lines that merely share a beam's nominal length validate each other as
-# a "beam". Measured real rails cluster tightly at ~6 units (max ~10); genuine
-# beams never exceed this. Everything past it (27, 42, 428 units observed) is a
-# dimension line, not a rail — so a beam-length partner only counts within this
-# gap. Keeps the real ~6-unit cluster + margin, drops the 27+ noise band.
-_BEAMLEN_PARTNER_MAX = 20.0  # world units
+# a "beam". This clause is already strict — it requires the partner to itself be
+# a full same-nominal-length, overlapping, parallel rail (two dimension lines
+# rarely both hit an exact beam nominal AND fully overlap). Wider beams do exist:
+# e.g. an alumBeam14 pair (path14512/path14514, 1050-long rails) sits ~48 units
+# apart. The measured gap distribution for beam-length twins is a continuum up to
+# ~48, with dimension-line noise beginning ~53+, so this bound is set just past
+# the real 48-unit beams and below the noise band.
+_BEAMLEN_PARTNER_MAX = 50.0  # world units
+# The far-right strip of the sheet is the TITLE BLOCK / legend — a stack of
+# uniformly-spaced horizontal rules, some of which happen to hit a beam nominal
+# length and validate each other as a "pair". Real beams live in the plan area
+# and never reach into this strip (measured rightmost real beam ~2950 world;
+# the title-block rules sit at ~3245+ on a 3456-wide sheet). Candidates whose
+# rails lie entirely to the right of this fraction of sheet width are dropped.
+_TITLE_BLOCK_X_FRAC = 0.90  # 0.90 * 3456 ≈ 3110, between the two clusters
+# A real drawing-geometry path is named "path" + digits (e.g. path14514).
+# Anything else is a Vector / synthesized element and is never an aluminum beam.
+_PATH_ID_RE = re.compile(r'^path\d+$')
 # Min world length for a segment to serve as a partner rail. The opposite rail
 # is often split into short pieces (~48 world units here), so this must stay
 # well below that; it only filters out tiny arrowhead/tick stubs.
 _PARTNER_MIN_LEN = 25.0   # world units
+# A single aluminum-beam rail is drawn as ONE standalone straight line whose
+# nominal length is the beam size. Two shapes masquerade as rails because they
+# contain a matching-length run but are NOT beams:
+#   - Small closed RECTANGLES (a box drawn as long,short,long,short = 4 segs,
+#     e.g. a 375x50 marker) — one long side coincidentally hits a beam length.
+#   - Long multi-segment POLYLINES (dimension/construction runs) that happen to
+#     include one beam-length straight run among many segments.
+# A real rail path has few segments (the rail, sometimes split, plus stubs) and
+# is never a closed box. Paths with more segments than this are polylines.
+_MAX_RAIL_SEGMENTS = 6
+
+
+def _is_beam_rail_shape(path_d, target_dimension, tolerance):
+    """True if path_d looks like a real beam rail rather than a box outline or a
+    long dimension polyline. Rejects: (a) closed rectangles that merely have one
+    side at the beam length, and (b) paths with many straight sub-segments (a
+    polyline whose beam-length run is incidental). See _MAX_RAIL_SEGMENTS."""
+    segs = list(_iter_line_segments(path_d))
+    n = len(segs)
+    if n == 0:
+        return False
+    lengths = [math.hypot(x2 - x1, y2 - y1) for x1, y1, x2, y2 in segs]
+    # A 4-segment closed rectangle: two sides near the beam length and two much
+    # shorter sides. That is a marker/box, not a rail — reject it.
+    if n == 4:
+        longs = sum(1 for L in lengths
+                    if abs(L - target_dimension) <= tolerance)
+        shorts = sum(1 for L in lengths if L < target_dimension / 2.0)
+        if longs >= 2 and shorts >= 2:
+            return False
+    # A many-segment polyline is a dimension/construction run, not a rail.
+    if n > _MAX_RAIL_SEGMENTS:
+        return False
+    return True
 
 
 def _seg_angle_deg(x1, y1, x2, y2):
@@ -667,6 +683,10 @@ def _build_parallel_pool(svg_content, xform_by_id):
         if not (d_m and id_m):
             continue
         path_id = id_m.group(1)
+        # Only real drawing geometry ("path####") can be a beam rail. Vector /
+        # synthesized elements never partner-validate a beam.
+        if not _PATH_ID_RE.match(path_id):
+            continue
         mx = xform_by_id.get(path_id) if xform_by_id else None
         for lx1, ly1, lx2, ly2 in _iter_line_segments(d_m.group(1)):
             if mx is not None:
@@ -681,6 +701,26 @@ def _build_parallel_pool(svg_content, xform_by_id):
     return pool
 
 
+def _sheet_width(svg_content):
+    """Sheet width in world units from the viewBox (defaults to 3456)."""
+    m = re.search(r'viewBox="[^"]*?\s([\d.]+)\s+[\d.]+"', svg_content)
+    try:
+        return float(m.group(1)) if m else 3456.0
+    except (ValueError, AttributeError):
+        return 3456.0
+
+
+def _in_title_block(candidate, sheet_w):
+    """True if this rail lies entirely in the far-right title-block strip, so
+    it should never be treated as an aluminum beam. `candidate` is
+    (id, angle, x1, y1, x2, y2) in world coords."""
+    if not sheet_w:
+        return False
+    limit = _TITLE_BLOCK_X_FRAC * sheet_w
+    _id, _a, x1, _y1, x2, _y2 = candidate
+    return min(x1, x2) >= limit
+
+
 def mark_alum_beams_by_dimension(svg_content, target_dimension, stroke_color, tolerance=0):
     """Turn the stroke color of any <path> whose straight run matches
     target_dimension AND has at least one parallel same-dimension partner rail
@@ -689,7 +729,8 @@ def mark_alum_beams_by_dimension(svg_content, target_dimension, stroke_color, to
     Beams may be drawn at ANY angle (not just 90°/180°). A rail is kept only if
     it has a parallel partner: real aluminum beams are always two parallel
     rails, whereas a lone matching line is usually a dimension/construction line
-    that merely shares a beam's nominal length.
+    that merely shares a beam's nominal length. Rails inside the title-block
+    strip are excluded (see _in_title_block).
     """
     path_pattern = re.compile(r'<path\b[^>]*>')
     style_pattern = re.compile(r'\bstyle="([^"]*)"')
@@ -698,6 +739,7 @@ def mark_alum_beams_by_dimension(svg_content, target_dimension, stroke_color, to
 
     # Build ancestor-transform map so we can convert local path coords → world.
     _parent_of, xform_by_id = _build_parent_and_transform_maps(svg_content)
+    sheet_w = _sheet_width(svg_content)
 
     # Pass 1: collect candidate rails (geometry + fill guard). A single path may
     # contain several matching segments, so every one is registered. Each is
@@ -723,7 +765,19 @@ def mark_alum_beams_by_dimension(svg_content, target_dimension, stroke_color, to
         if fill_val and fill_val != 'none':
             continue
 
+        # Shape guard: skip box outlines and long polylines that only contain a
+        # beam-length run (see _is_beam_rail_shape). A real rail is a standalone
+        # straight line, so these are false positives (e.g. small rectangle
+        # markers or dimension polylines sharing a beam's nominal length).
+        if not _is_beam_rail_shape(path_d, target_dimension, tolerance):
+            continue
+
         path_id = id_m.group(1)
+        # Real drawing geometry is named "path####". Anything else is a Vector /
+        # synthesized element (containers, annotations, id-less graphics), never
+        # an aluminum beam — skip it.
+        if not _PATH_ID_RE.match(path_id):
+            continue
         mx = xform_by_id.get(path_id) if xform_by_id else None
         for lx1, ly1, lx2, ly2 in segs:
             # Map to world coords via ancestor transform.
@@ -788,7 +842,8 @@ def mark_alum_beams_by_dimension(svg_content, target_dimension, stroke_color, to
                 return True
         return False
 
-    keepers = {c[0] for c in candidates if has_partner(c)}
+    keepers = {c[0] for c in candidates
+               if not _in_title_block(c, sheet_w) and has_partner(c)}
 
     changed_count = 0
 
@@ -953,6 +1008,7 @@ def run_step11():
     # rails of the same beam can differ by ~1.5 units due to rounding, and the
     # smallest gap between adjacent beam dimensions is 37, so 2 stays unambiguous.
     beam_specs = [
+        ("alumBeam24", 1800, 2, "#00A000"),
         ("alumBeam20", 1500, 2, "#A020F0"),
         ("alumBeam18", 1350, 2, "#FFD400"),
         ("alumBeam16", 1201, 2, "#ffffff"),

@@ -48,6 +48,7 @@ WOOD_COLOR = "#ffff00"          # synthesized wood beams
 # Aluminum beams are colored PER SIZE so each beam length is visually
 # distinct in alumBeams.svg. Any size not listed falls back to FALLBACK.
 ALUM_BEAM_COLORS = {
+    "alumBeam24":   "#e6beff",  # lavender
     "alumBeam5":    "#e6194b",  # red
     "alumBeam6":    "#f58231",  # orange
     "alumBeam7":    "#ffe119",  # yellow
