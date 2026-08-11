@@ -572,6 +572,128 @@ def run_pipeline_with_logging(upload_id: str):
     except Exception as wood_err:
         print(f"⚠️  Could not merge wood-beam totals into data.json: {wood_err}")
 
+    # Grand total of every color-marked/detected object. Computed here because
+    # this is the first point where ALL counts are in data.json: step_results
+    # holds the color shapes (blue X-shores, red squares, pink/green/orange/
+    # yellow rects), the alumBeam* sizes, and the wood_*ft counts just merged
+    # above; crossbar_totals and frame_totals were written by Step13. Summed
+    # into data['object_totals'] so the frontend/DB gets one figure.
+    try:
+        if os.path.exists(data_file):
+            with open(data_file, "r") as f:
+                data_tot = json.load(f)
+            sr = data_tot.get("step_results", {}) or {}
+
+            def _int(v):
+                try:
+                    return int(v)
+                except (TypeError, ValueError):
+                    return 0
+
+            color_shapes = sum(_int(sr.get(k)) for k in (
+                "step5_blue_X_shapes", "step6_red_squares", "step7_pink_shapes",
+                "step8_green_rectangles", "step9_orange_rectangles",
+                "step11_yellow_shapes"))
+            alum_beams = sum(_int(v) for k, v in sr.items()
+                             if k.startswith("alumBeam"))
+            wood = sum(_int(v) for k, v in sr.items() if k.startswith("wood_"))
+            crossbars = _int((data_tot.get("crossbar_totals") or {}).get("total"))
+            frames = _int((data_tot.get("frame_totals") or {}).get("total"))
+            grand_total = color_shapes + alum_beams + wood + crossbars + frames
+
+            data_tot["object_totals"] = {
+                "color_shapes": color_shapes,
+                "alum_beams": alum_beams,
+                "wood": wood,
+                "crossbars": crossbars,
+                "frames": frames,
+                "total": grand_total,
+            }
+            with open(data_file, "w") as f:
+                json.dump(data_tot, f, indent=4)
+            print(f"✅ Object totals computed (total={grand_total}): "
+                  f"shapes={color_shapes}, beams={alum_beams}, wood={wood}, "
+                  f"crossbars={crossbars}, frames={frames}")
+    except Exception as tot_err:
+        print(f"⚠️  Could not compute object totals: {tot_err}")
+
+    # Per-color count within each category (category -> color -> count). Colors
+    # are the render colors used in the Step11/Step18 SVGs, so the frontend can
+    # show a legend that matches the drawing.
+    try:
+        if os.path.exists(data_file):
+            with open(data_file, "r") as f:
+                data_cb = json.load(f)
+            sr = data_cb.get("step_results", {}) or {}
+
+            def _int(v):
+                try:
+                    return int(v)
+                except (TypeError, ValueError):
+                    return 0
+
+            # Color shapes: each detection color is a single fixed hue.
+            color_shapes = {
+                "blue":   {"hex": "#0000ff", "count": _int(sr.get("step5_blue_X_shapes"))},
+                "red":    {"hex": "#ff0000", "count": _int(sr.get("step6_red_squares"))},
+                "pink":   {"hex": "#ff00cd", "count": _int(sr.get("step7_pink_shapes"))},
+                "green":  {"hex": "#70ff00", "count": _int(sr.get("step8_green_rectangles"))},
+                "orange": {"hex": "#ff8c00", "count": _int(sr.get("step9_orange_rectangles"))},
+                "yellow": {"hex": "#ffff00", "count": _int(sr.get("step11_yellow_shapes"))},
+            }
+
+            # Aluminum beams: one render color PER SIZE (mirrors Step18
+            # ALUM_BEAM_COLORS). Keyed by size; "alumBeam106" and "alumBeam10_6"
+            # are the same size written two ways, so both map to the same color.
+            beam_palette = {
+                "alumBeam24": ("#e6beff", "lavender"), "alumBeam5": ("#e6194b", "red"),
+                "alumBeam6": ("#f58231", "orange"), "alumBeam7": ("#ffe119", "yellow"),
+                "alumBeam8": ("#bfef45", "lime"), "alumBeam9": ("#3cb44b", "green"),
+                "alumBeam10": ("#42d4f4", "cyan"), "alumBeam10_6": ("#4363d8", "blue"),
+                "alumBeam106": ("#4363d8", "blue"), "alumBeam11": ("#911eb4", "purple"),
+                "alumBeam12": ("#f032e6", "magenta"), "alumBeam13": ("#a9a9a9", "gray-blue"),
+                "alumBeam14": ("#9a6324", "brown"), "alumBeam16": ("#469990", "teal"),
+                "alumBeam18": ("#000075", "navy"), "alumBeam20": ("#808000", "olive"),
+            }
+            alum_beams = {}
+            for size, cnt in sr.items():
+                if not size.startswith("alumBeam"):
+                    continue
+                hexc, label = beam_palette.get(size, ("#0000ff", "blue"))
+                alum_beams[size] = {"hex": hexc, "color": label, "count": _int(cnt)}
+
+            # Wood beams: all rendered one color (yellow); split per length.
+            wood = {size: {"hex": "#ffff00", "count": _int(cnt)}
+                    for size, cnt in sr.items() if size.startswith("wood_")}
+
+            # Crossbars: already per-color from Step13.
+            ct = data_cb.get("crossbar_totals") or {}
+            cb_hex = {"Green": "#00ff00", "Red": "#ff0000", "Yellow": "#ffff00"}
+            crossbars = {
+                name.replace("crossbar_", ""): {
+                    "hex": cb_hex.get(name.replace("crossbar_", ""), "#ffffff"),
+                    "count": _int(cnt)}
+                for name, cnt in ct.items() if name != "total"
+            }
+
+            # Frames: all drawn green; split per type (frame_2 / frame_4).
+            ft = data_cb.get("frame_totals") or {}
+            frames = {name: {"hex": "#70ff00", "count": _int(cnt)}
+                      for name, cnt in ft.items() if name != "total"}
+
+            data_cb["color_breakdown"] = {
+                "color_shapes": color_shapes,
+                "alum_beams": alum_beams,
+                "wood": wood,
+                "crossbars": crossbars,
+                "frames": frames,
+            }
+            with open(data_file, "w") as f:
+                json.dump(data_cb, f, indent=4)
+            print("✅ Per-color breakdown computed for each category")
+    except Exception as cb_err:
+        print(f"⚠️  Could not compute color breakdown: {cb_err}")
+
     # Step18: per-category highlight SVGs (shores/alumBeams/frames/wood).
     # Must run BEFORE the cleanup below wipes files/groups + files/tempData,
     # since wood.svg reads the per-group wood SVGs and the others read
