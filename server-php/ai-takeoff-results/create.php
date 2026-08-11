@@ -173,12 +173,49 @@ function insertResults($conn, $data) {
         $processingStartTime = $data['processing_start_time'] ?? null;
         $processingEndTime = $data['processing_end_time'] ?? null;
 
+        // Grouped JSON columns: each element category as one {name: count} map,
+        // built from the same resolved values used for the discrete columns.
+        // Null-count entries are dropped so a category only lists what it has.
+        $jsonOrNull = function($map) {
+            $clean = array_filter($map, function($v) { return $v !== null; });
+            return empty($clean) ? null
+                : json_encode($clean, JSON_UNESCAPED_SLASHES);
+        };
+        $alumBeamsJson = $jsonOrNull([
+            'alumBeam4' => $alumBeam4, 'alumBeam5' => $alumBeam5,
+            'alumBeam6' => $alumBeam6, 'alumBeam7' => $alumBeam7,
+            'alumBeam8' => $alumBeam8, 'alumBeam9' => $alumBeam9,
+            'alumBeam10' => $alumBeam10, 'alumBeam106' => $alumBeam106,
+            'alumBeam11' => $alumBeam11, 'alumBeam12' => $alumBeam12,
+            'alumBeam13' => $alumBeam13, 'alumBeam14' => $alumBeam14,
+            'alumBeam16' => $alumBeam16, 'alumBeam18' => $alumBeam18,
+            'alumBeam20' => $alumBeam20,
+        ]);
+        $shapesJson = $jsonOrNull([
+            'blue_x_shapes' => $blueXShapes, 'red_squares' => $redSquares,
+            'pink_shapes' => $pinkShapes, 'green_rectangles' => $greenRectangles,
+            'orange_rectangles' => $orangeRectangles,
+        ]);
+        $crossbarsJson = $jsonOrNull([
+            'crossbar_5' => $crossbar5, 'crossbar_6' => $crossbar6,
+            'crossbar_7' => $crossbar7, 'total' => $crossbarTotal,
+        ]);
+        $framesJson = $jsonOrNull([
+            'frame_5' => $frame5, 'frame_6' => $frame6,
+            'frame_null' => $frameNull, 'total' => $frameTotal,
+        ]);
+        $woodJson = $jsonOrNull([
+            'wood_8ft' => $wood8ft, 'wood_9ft' => $wood9ft,
+            'wood_10ft' => $wood10ft, 'wood_12ft' => $wood12ft,
+        ]);
+
         $sql = "INSERT INTO ai_takeoff_results (tracking_url, company, jobsite,
 blue_x_shapes, red_squares, pink_shapes, green_rectangles, orange_rectangles,
 alumBeam4, alumBeam5, alumBeam6, alumBeam7, alumBeam8, alumBeam9, alumBeam10, alumBeam106, alumBeam11, alumBeam12, alumBeam13, alumBeam14, alumBeam16, alumBeam18, alumBeam20,
 wood_8ft, wood_9ft, wood_10ft, wood_12ft,
 crossbar_5, crossbar_6, crossbar_7, crossbar_total, frame_5, frame_6, frame_null, frame_total,
 identified_elements, svg_file, svg_files,
+alumBeams, shapes, crossbars, frames, wood,
 text, status, logs, processing_duration, processing_start_time, processing_end_time)
 VALUES (:tracking_url, :company, :jobsite, :blue_x_shapes, :red_squares,
 :pink_shapes, :green_rectangles, :orange_rectangles,
@@ -186,6 +223,7 @@ VALUES (:tracking_url, :company, :jobsite, :blue_x_shapes, :red_squares,
 :wood_8ft, :wood_9ft, :wood_10ft, :wood_12ft,
 :crossbar_5, :crossbar_6, :crossbar_7, :crossbar_total, :frame_5, :frame_6, :frame_null, :frame_total,
 :identified_elements, :svg_file, :svg_files,
+:alumBeams, :shapes, :crossbars, :frames, :wood,
 :text, :status, :logs, :processing_duration, :processing_start_time, :processing_end_time)";
 
         $stmt = $conn->prepare($sql);
@@ -247,6 +285,17 @@ VALUES (:tracking_url, :company, :jobsite, :blue_x_shapes, :red_squares,
             $stmt->bindValue(':svg_files', null, PDO::PARAM_NULL);
         } else {
             $stmt->bindValue(':svg_files', $svgFiles, PDO::PARAM_STR);
+        }
+
+        // Grouped JSON columns (LONGTEXT string, or SQL NULL when empty).
+        foreach ([':alumBeams' => $alumBeamsJson, ':shapes' => $shapesJson,
+                  ':crossbars' => $crossbarsJson, ':frames' => $framesJson,
+                  ':wood' => $woodJson] as $ph => $val) {
+            if ($val === null) {
+                $stmt->bindValue($ph, null, PDO::PARAM_NULL);
+            } else {
+                $stmt->bindValue($ph, $val, PDO::PARAM_STR);
+            }
         }
 
         $stmt->bindValue(':text', $text, PDO::PARAM_STR);
