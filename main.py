@@ -760,6 +760,37 @@ def run_pipeline_with_logging(upload_id: str):
         upload_ok = False
         print(f"⚠️  Error uploading layer SVGs to TTF FTP: {str(e)}")
 
+    # Canonical per-element path-id index. Built here — after Step18, before the
+    # cleanup below wipes files/ — while identified_elements.json and
+    # crossbars.svg still exist. Stored under data['identified_elements'] as
+    # { path_id: {category, type} } so the frontend can resolve a clicked SVG
+    # element id to its category/type and communicate back by path id.
+    try:
+        from processors.element_index import build_element_index
+        el_index = build_element_index(base_dir="files")
+        if el_index:
+            data_ei = None
+            try:
+                with open(data_file, "r") as f:
+                    data_ei = json.load(f)
+            except Exception as reload_err:
+                print(f"⚠️  Could not reload data.json before element-index write: {reload_err}")
+            if data_ei is not None:
+                data_ei["identified_elements"] = el_index
+                with open(data_file, "w") as f:
+                    json.dump(data_ei, f, indent=4)
+                data = data_ei
+                # Quick per-category tally for the log.
+                cats = {}
+                for v in el_index.values():
+                    cats[v["category"]] = cats.get(v["category"], 0) + 1
+                print(f"✅ Element index built: {len(el_index)} elements "
+                      f"({', '.join(f'{k}={n}' for k, n in sorted(cats.items()))})")
+        else:
+            print("⚠️  Element index empty — identified_elements.json / crossbars.svg not found")
+    except Exception as ei_err:
+        print(f"⚠️  Could not build element index: {ei_err}")
+
     # ── Archive intermediate files to ~/Desktop/OUTPUT/<TIMESTAMP>/ then clean up ──
     try:
         files_dir = "files"
