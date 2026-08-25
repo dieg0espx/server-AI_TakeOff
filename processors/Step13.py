@@ -1014,11 +1014,13 @@ def add_crossbar_lines(svg_content, paths, default_span, default_height,
 
             # `frames` is the per-side stack duplicated across 2 sides. Layout:
             #   - The box is split into a LEFT half and a RIGHT half, so a
-            #     single frame shows a DOUBLE X (one X per half, side by side).
-            #   - Within EACH half, every distinct stack color draws its own
-            #     FULL-HEIGHT X, overlapping and offset by GAP px so the colors
-            #     read separately — e.g. a "5'+4'" stack shows a red X and a
-            #     yellow X overlapping in each half.
+            #     single layer shows a DOUBLE X (one X per half, side by side).
+            #   - Within EACH half, every stack LAYER draws its own FULL-HEIGHT
+            #     X, overlapping and offset by GAP px so the layers read
+            #     separately — e.g. a "5'+5'" stack (2 layers) shows TWO offset
+            #     X's per half (4 X's total), and "5'+4'" shows a green X + a
+            #     blue X. The X count reflects the stack height regardless of
+            #     whether the layers share a color.
             n_rows = max(1, n_frames // 2)
             # Per-side stack heights. `frames` is that stack duplicated across
             # both sides. When the container has NO explicit "5'+5'" annotation,
@@ -1034,8 +1036,9 @@ def add_crossbar_lines(svg_content, paths, default_span, default_height,
             layer_boxes.append({'x': x, 'y': y, 'w': w, 'h': h,
                                 'layers': len(label_heights),
                                 'heights': label_heights})
-            # One color per stack level, first-seen order preserved.
-            colors = list(dict.fromkeys(frame_colors[:n_rows])) or ["#ffff00"]
+            # One X per stack LAYER (not per distinct color), so a same-color
+            # stack like "5'+5'" still draws one X per layer.
+            layer_colors = frame_colors[:n_rows] or ["#ffff00"]
 
             base = f"crossbar_line_{prefix}_{num}"
             yt, yb = y + INSET, y + h - INSET
@@ -1044,8 +1047,8 @@ def add_crossbar_lines(svg_content, paths, default_span, default_height,
             cells = [(x + INSET, mid - HALF_GAP / 2.0),
                      (mid + HALF_GAP / 2.0, x + w - INSET)]
             for si, (cx0, cx1) in enumerate(cells):
-                for ci, color_hex in enumerate(colors):
-                    off = ci * GAP  # offset each overlapping color X
+                for ci, color_hex in enumerate(layer_colors):
+                    off = ci * GAP  # offset each stacked layer's X
                     b = f"{base}_s{si + 1}_c{ci + 1}"
                     # "\" top-left -> bottom-right, then "/" top-right -> bottom-left
                     line_els += _tri_color_diagonal(
