@@ -137,12 +137,63 @@ def _load_boxes(path, list_key):
         return []
 
 
-def _overlay_rects(base_svg, out_path, box_layers, label):
+def _load_layer_boxes(path):
+    """Return the per-container layer boxes [{x,y,w,h,layers}] Step13 wrote to
+    frame_layers.json, or [] if unavailable."""
+    import json
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f) or []
+    except Exception:
+        return []
+
+
+def _match_layer_box(x, y, w, h, layer_boxes):
+    """Find the layer box for a frame by matching its bbox against the
+    per-container layer boxes Step13 recorded. Returns the matched box dict, or
+    None if no box centers within a small tolerance."""
+    cx, cy = x + w / 2.0, y + h / 2.0
+    best = None
+    best_d = None
+    for lb in layer_boxes:
+        try:
+            lcx = float(lb["x"]) + float(lb["w"]) / 2.0
+            lcy = float(lb["y"]) + float(lb["h"]) / 2.0
+        except (KeyError, TypeError, ValueError):
+            continue
+        d = (lcx - cx) ** 2 + (lcy - cy) ** 2
+        if best_d is None or d < best_d:
+            best_d = d
+            best = lb
+    # Tolerance: centers within ~10px (squared -> 100) count as the same box.
+    if best is not None and best_d is not None and best_d <= 100:
+        return best
+    return None
+
+
+def _layer_label(box):
+    """Build the corner label lines for a matched layer box. One layer ->
+    ["default"]; multiple layers -> one "<height>H x 4W" line per layer,
+    STACKED vertically (e.g. a 5'+5' stack -> ["5H x 4W", "5H x 4W"])."""
+    layers = int(box.get("layers", 1))
+    if layers <= 1:
+        return ["default"]
+    heights = box.get("heights") or []
+    tokens = [f"{int(h)}H x 4W" for h in heights]
+    if not tokens:
+        # No per-layer heights recorded; still show one line per layer.
+        tokens = ["?H x 4W"] * layers
+    return tokens
+
+
+def _overlay_rects(base_svg, out_path, box_layers, label, layer_boxes=None):
     """Overlay colored bounding rectangles onto the gray base. box_layers is
     a list of (boxes, color, prefix). One <rect> per box, drawn before
-    </svg> so it sits on top."""
+    </svg> so it sits on top. When `layer_boxes` is given, also draw the stack
+    LAYER count in each box's top-left corner."""
     els = []
     total = 0
+    layer_boxes = layer_boxes or []
     for boxes, color, prefix in box_layers:
         for i, b in enumerate(boxes, 1):
             try:
@@ -155,6 +206,22 @@ def _overlay_rects(base_svg, out_path, box_layers, label):
                 f'width="{w}" height="{h}" '
                 f'style="fill:none;stroke:{color};stroke-width:3;stroke-opacity:1" />'
             )
+            match = _match_layer_box(x, y, w, h, layer_boxes)
+            if match is not None:
+                lines = _layer_label(match)
+                tx, ty = x + 3, y + 3  # top-left corner, small inset
+                # One <tspan> per line, stacked downward by the font's line
+                # height (10px). The first sits at ty; each next drops one line.
+                spans = "".join(
+                    f'<tspan x="{tx}" dy="{0 if k == 0 else 10}">{ln}</tspan>'
+                    for k, ln in enumerate(lines)
+                )
+                els.append(
+                    f'    <text id="layers_{prefix}_{i}" x="{tx}" y="{ty}" '
+                    f'style="font-family:Arial;font-size:10px;fill:{color};'
+                    f'text-anchor:start;dominant-baseline:hanging;'
+                    f'font-weight:bold">{spans}</text>'
+                )
             total += 1
     if els:
         block = "\n" + "\n".join(els) + "\n"
@@ -269,8 +336,9 @@ def run_step18():
             boxes = _load_boxes(os.path.join(td, fname), lk)
             if boxes:
                 frame_layers.append((boxes, FRAME_COLOR, fname[:-5]))
+        layer_boxes = _load_layer_boxes(os.path.join(td, "frame_layers.json"))
         _overlay_rects(base_svg, os.path.join(base_dir, "frames.svg"),
-                       frame_layers, "frames")
+                       frame_layers, "frames", layer_boxes=layer_boxes)
 
         # Wood beams: overlay synthesized lines from the per-group SVGs.
         _build_wood_svg(base_svg, os.path.join(base_dir, "groups"),

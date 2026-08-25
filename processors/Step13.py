@@ -959,11 +959,15 @@ def add_crossbar_lines(svg_content, paths, default_span, default_height,
     the single color. Color/frame counts are still tallied PER FRAME so the
     downstream crossbar_totals stay accurate.
 
-    Returns (svg_content, count, color_breakdown, frame_breakdown).
+    Returns (svg_content, count, color_breakdown, frame_breakdown, layer_boxes).
+    `layer_boxes` is a list of {x, y, w, h, layers} — one per container — where
+    `layers` is the stack size per side (number of apostrophe-numbers, or 1 when
+    the frame carries no number). Each layer uses 2 frames.
     """
     line_els = []
     color_counts = {}
     frame_counts = {}
+    layer_boxes = []
     count = 0
     INSET = 3.0        # keep the X just inside the container edges
     STROKE = 2.0
@@ -1002,6 +1006,14 @@ def add_crossbar_lines(svg_content, paths, default_span, default_height,
             #     read separately — e.g. a "5'+4'" stack shows a red X and a
             #     yellow X overlapping in each half.
             n_rows = max(1, n_frames // 2)
+            # n_rows is the stack size per side = the number of LAYERS (each
+            # layer is 2 frames). `frames` is the per-side stack duplicated
+            # across both sides, so the per-side heights are the first n_rows.
+            # 1 layer -> Step18 renders "default"; multiple layers -> Step18
+            # renders one "<height>+4" token per layer from these heights.
+            layer_boxes.append({'x': x, 'y': y, 'w': w, 'h': h,
+                                'layers': n_rows,
+                                'heights': frames[:n_rows]})
             # One color per stack level, first-seen order preserved.
             colors = list(dict.fromkeys(frame_colors[:n_rows])) or ["#ffff00"]
 
@@ -1025,7 +1037,7 @@ def add_crossbar_lines(svg_content, paths, default_span, default_height,
     if line_els:
         block = "\n" + "\n".join(line_els) + "\n"
         svg_content = svg_content.replace("</svg>", block + "</svg>", 1)
-    return svg_content, count, color_counts, frame_counts
+    return svg_content, count, color_counts, frame_counts, layer_boxes
 
 
 def extract_default_frame_spec(extracted_text):
@@ -1193,10 +1205,21 @@ def run_step13():
 
             with open(out_path, 'r', encoding='utf-8') as f:
                 svg_content = f.read()
-            svg_content, n_lines, color_counts, frame_counts = add_crossbar_lines(
+            svg_content, n_lines, color_counts, frame_counts, layer_boxes = add_crossbar_lines(
                 svg_content, green_paths, default_span, default_height)
             with open(out_path, 'w', encoding='utf-8') as f:
                 f.write(svg_content)
+
+            # Persist per-container layer counts so Step18 can label frames.svg.
+            layers_path = os.path.join(os.path.dirname(out_path), 'tempData',
+                                       'frame_layers.json')
+            try:
+                os.makedirs(os.path.dirname(layers_path), exist_ok=True)
+                with open(layers_path, 'w', encoding='utf-8') as f:
+                    json.dump(layer_boxes, f, indent=4)
+                print(f"✅ Saved {len(layer_boxes)} frame layer count(s) to {layers_path}")
+            except Exception as _e:
+                print(f"⚠️  Step13: could not write frame_layers.json: {_e}")
             print(f"✅ Added crossbar lines to {n_lines} annotation(s) in Step13.svg")
             print(f"   Color breakdown: {color_counts}")
             print(f"   Frames-per-annotation breakdown: {frame_counts}")
