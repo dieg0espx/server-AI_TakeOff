@@ -874,6 +874,16 @@ def read_container_frames(container, paths, default_height):
     return stack * 2
 
 
+def container_has_frame_annotation(container, paths):
+    """True if the container carries an explicit apostrophe+digit frame stack
+    (e.g. "5'+5'"). False means it uses the drawing DEFAULT frame spec."""
+    contained = find_contained_paths({0: container}, paths)
+    glyphs = find_glyph_paths(contained).get(0, {}).get('glyphs', [])
+    has_ap = any(g.get('digit') == 'apostrophe' for g in glyphs)
+    has_dig = any(g.get('digit') in ('3', '4', '5', '6', '7') for g in glyphs)
+    return has_ap and has_dig
+
+
 def _table_for_height(height):
     """Pick the cross bar table whose frame_sizes include this height (ft)."""
     key = f"{int(height)}'"
@@ -941,7 +951,8 @@ def _tri_color_diagonal(id_base, p0, p1, color_hex, stroke_width=2.0,
 
 
 def add_crossbar_lines(svg_content, paths, default_span, default_height,
-                       prefixes=('green_container', 'orange_container')):
+                       prefixes=('green_container', 'orange_container'),
+                       default_stack=None):
     """
     For every container of the given prefixes:
       - read its span (cross-bar size) -> picks the table row
@@ -959,11 +970,18 @@ def add_crossbar_lines(svg_content, paths, default_span, default_height,
     the single color. Color/frame counts are still tallied PER FRAME so the
     downstream crossbar_totals stay accurate.
 
-    Returns (svg_content, count, color_breakdown, frame_breakdown).
+    Returns (svg_content, count, color_breakdown, frame_breakdown, layer_boxes).
+    `layer_boxes` is a list of {x, y, w, h, layers} — one per container — where
+    `layers` is the stack size per side (number of apostrophe-numbers, or 1 when
+    the frame carries no number). Each layer uses 2 frames.
     """
     line_els = []
     color_counts = {}
     frame_counts = {}
+    layer_boxes = []
+    # Default frame-height stack for containers with NO explicit annotation
+    # (e.g. the note "ALL FRAMES TO BE 5'+5' HIGH" -> [5, 5]).
+    default_stack = default_stack or [int(default_height)]
     count = 0
     INSET = 3.0        # keep the X just inside the container edges
     STROKE = 2.0
@@ -1002,6 +1020,20 @@ def add_crossbar_lines(svg_content, paths, default_span, default_height,
             #     read separately — e.g. a "5'+4'" stack shows a red X and a
             #     yellow X overlapping in each half.
             n_rows = max(1, n_frames // 2)
+            # Per-side stack heights. `frames` is that stack duplicated across
+            # both sides. When the container has NO explicit "5'+5'" annotation,
+            # it uses the drawing DEFAULT stack from the note (e.g. [5, 5]).
+            if container_has_frame_annotation(container, paths):
+                per_side = frames[:n_rows]
+            else:
+                per_side = list(default_stack)
+            # Every layer is 2 frames (the stack appears on BOTH sides), so the
+            # label lists each height TWICE, grouped: [5,6] -> [5,5,6,6]. Each
+            # entry -> one "<h>H x 4W" line in the frames.svg corner (Step18).
+            label_heights = [h for h in per_side for _ in range(2)]
+            layer_boxes.append({'x': x, 'y': y, 'w': w, 'h': h,
+                                'layers': len(label_heights),
+                                'heights': label_heights})
             # One color per stack level, first-seen order preserved.
             colors = list(dict.fromkeys(frame_colors[:n_rows])) or ["#ffff00"]
 
@@ -1025,7 +1057,26 @@ def add_crossbar_lines(svg_content, paths, default_span, default_height,
     if line_els:
         block = "\n" + "\n".join(line_els) + "\n"
         svg_content = svg_content.replace("</svg>", block + "</svg>", 1)
-    return svg_content, count, color_counts, frame_counts
+    return svg_content, count, color_counts, frame_counts, layer_boxes
+
+
+def extract_default_height_stack(extracted_text):
+    """
+    Parse the FULL default frame-height stack from the drawing note, e.g.
+    "ALL FRAMES TO BE 5'+5' HIGH X 4' WIDE HEAVY DUTY..." -> [5, 5], or
+    "...TO BE 6' HIGH X 4' WIDE..." -> [6].
+
+    The stack is the sequence of foot values that appear right before "HIGH".
+    Returns a list of ints, or [] if the note isn't found.
+    """
+    if not extracted_text:
+        return []
+    # Grab the run of feet values (e.g. "5'+5'" or "6'") that precedes HIGH.
+    # Foot marks may be straight (') or curly (’), so allow both.
+    m = re.search(r"TO BE\s+([\d'’+\s]+?)\s*HIGH", extracted_text, re.IGNORECASE)
+    if not m:
+        return []
+    return [int(n) for n in re.findall(r"\d+", m.group(1))]
 
 
 def extract_default_frame_spec(extracted_text):
@@ -1159,9 +1210,6 @@ def run_step13():
         if frame_spec is not None:
             data['default_frame_spec'] = frame_spec
 
-        # Store the cross bar lookup tables (frame size + span -> size + color).
-        data['cross_bar_tables'] = CROSS_BAR_TABLES
-
         with open(data_path, 'w') as f:
             json.dump(data, f, indent=4)
         print(f"\n✅ Saved default frame spec to data.json")
@@ -1181,6 +1229,13 @@ def run_step13():
             default_height = 6  # drawing default when spec unavailable
         default_span = f"{int(default_bracing)}'"
 
+        # Full default height stack from the note (e.g. "5'+5'" -> [5, 5]) so
+        # default (unnumbered) frames can be labeled with the real stack rather
+        # than a single height. Falls back to a single default_height layer.
+        default_stack = extract_default_height_stack(data.get('extracted_text', ''))
+        if not default_stack:
+            default_stack = [int(default_height)]
+
         if os.path.exists(out_path):
             import xml.etree.ElementTree as _ET
             _root = _ET.parse(out_path).getroot()
@@ -1193,10 +1248,22 @@ def run_step13():
 
             with open(out_path, 'r', encoding='utf-8') as f:
                 svg_content = f.read()
-            svg_content, n_lines, color_counts, frame_counts = add_crossbar_lines(
-                svg_content, green_paths, default_span, default_height)
+            svg_content, n_lines, color_counts, frame_counts, layer_boxes = add_crossbar_lines(
+                svg_content, green_paths, default_span, default_height,
+                default_stack=default_stack)
             with open(out_path, 'w', encoding='utf-8') as f:
                 f.write(svg_content)
+
+            # Persist per-container layer counts so Step18 can label frames.svg.
+            layers_path = os.path.join(os.path.dirname(out_path), 'tempData',
+                                       'frame_layers.json')
+            try:
+                os.makedirs(os.path.dirname(layers_path), exist_ok=True)
+                with open(layers_path, 'w', encoding='utf-8') as f:
+                    json.dump(layer_boxes, f, indent=4)
+                print(f"✅ Saved {len(layer_boxes)} frame layer count(s) to {layers_path}")
+            except Exception as _e:
+                print(f"⚠️  Step13: could not write frame_layers.json: {_e}")
             print(f"✅ Added crossbar lines to {n_lines} annotation(s) in Step13.svg")
             print(f"   Color breakdown: {color_counts}")
             print(f"   Frames-per-annotation breakdown: {frame_counts}")

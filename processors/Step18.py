@@ -137,12 +137,202 @@ def _load_boxes(path, list_key):
         return []
 
 
-def _overlay_rects(base_svg, out_path, box_layers, label):
+def _load_layer_boxes(path):
+    """Return the per-container layer boxes [{x,y,w,h,layers}] Step13 wrote to
+    frame_layers.json, or [] if unavailable."""
+    import json
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f) or []
+    except Exception:
+        return []
+
+
+def _match_layer_box(x, y, w, h, layer_boxes):
+    """Find the layer box for a frame by matching its bbox against the
+    per-container layer boxes Step13 recorded. Returns the matched box dict, or
+    None if no box centers within a small tolerance."""
+    cx, cy = x + w / 2.0, y + h / 2.0
+    best = None
+    best_d = None
+    for lb in layer_boxes:
+        try:
+            lcx = float(lb["x"]) + float(lb["w"]) / 2.0
+            lcy = float(lb["y"]) + float(lb["h"]) / 2.0
+        except (KeyError, TypeError, ValueError):
+            continue
+        d = (lcx - cx) ** 2 + (lcy - cy) ** 2
+        if best_d is None or d < best_d:
+            best_d = d
+            best = lb
+    # Tolerance: centers within ~10px (squared -> 100) count as the same box.
+    if best is not None and best_d is not None and best_d <= 100:
+        return best
+    return None
+
+
+def _layer_label(box):
+    """Build the corner label lines for a matched layer box: one "<height>H x
+    4W" line per stacked frame layer, STACKED vertically. A 5'+5' stack (or a
+    5'+5' drawing default) -> ["5H x 4W", "5H x 4W"]; a single 6' default ->
+    ["6H x 4W"]."""
+    heights = box.get("heights") or []
+    tokens = [f"{int(h)}H x 4W" for h in heights]
+    if not tokens:
+        # No heights recorded; fall back to the layer count.
+        tokens = ["?H x 4W"] * max(1, int(box.get("layers", 1)))
+    return tokens
+
+
+def _find_piggybacks(boxes, edge_tol=15.0, align_tol=8.0):
+    """Detect piggyback pairs among frame boxes. A piggyback is two bays that
+    meet edge-to-edge and SHARE the physical frame on that side: their facing
+    edges overlap by only a thin band (<= edge_tol, ~one frame thickness) while
+    the perpendicular span stays aligned (within align_tol). Returns a list of
+    (i, j) index pairs into `boxes`.
+
+    `boxes` is a list of (x, y, w, h) tuples."""
+    pairs = []
+    n = len(boxes)
+    for i in range(n):
+        ax, ay, aw, ah = boxes[i]
+        for j in range(i + 1, n):
+            bx, by, bw, bh = boxes[j]
+            ix = min(ax + aw, bx + bw) - max(ax, bx)   # x-overlap (may be <0)
+            iy = min(ay + ah, by + bh) - max(ay, by)   # y-overlap
+            if ix <= 0 or iy <= 0:
+                continue
+            # Shared VERTICAL edge: thin x-band, tall y-overlap, y-centers align.
+            share_v = (ix <= edge_tol and iy > edge_tol
+                       and abs((ay + ah / 2) - (by + bh / 2)) <= align_tol)
+            # Shared HORIZONTAL edge: thin y-band, wide x-overlap, x-centers align.
+            share_h = (iy <= edge_tol and ix > edge_tol
+                       and abs((ax + aw / 2) - (bx + bw / 2)) <= align_tol)
+            if share_v or share_h:
+                pairs.append((i, j))
+    return pairs
+
+
+def _corner_text(el_id, tx, ty, color, lines):
+    """A top-left-corner <text> with one <tspan> per line, stacked downward by
+    the 10px font line height."""
+    spans = "".join(
+        f'<tspan x="{tx}" dy="{0 if k == 0 else 10}">{ln}</tspan>'
+        for k, ln in enumerate(lines)
+    )
+    return (f'    <text id="{el_id}" x="{tx}" y="{ty}" '
+            f'style="font-family:Arial;font-size:10px;fill:{color};'
+            f'text-anchor:start;dominant-baseline:hanging;'
+            f'font-weight:bold">{spans}</text>')
+
+
+def _piggyback_label(el_id, ux, uy, uw, uh, color, stack_lines, positions):
+    """Merged-piggyback label: draw `positions` groups spread across the
+    outline, EACH group showing the full per-side stack (`stack_lines`). A
+    TALL outline places the groups top -> bottom; a WIDE outline places them
+    left -> right. So a 6+5 pair (stack ["5X4","6X4"], 3 positions) reads as
+    three "5X4 / 6X4" blocks along the bay."""
+    if not stack_lines or positions <= 0:
+        return ""
+    LINE_H = 10.0
+    inset = 12.0
+    sideways = uw > uh
+    # Evenly space `positions` anchor points between the two insets.
+    def lerp(a, b, t):
+        return a + (b - a) * t
+    anchors = []
+    for p in range(positions):
+        t = 0.5 if positions == 1 else p / (positions - 1)
+        if sideways:
+            anchors.append((lerp(ux + inset, ux + uw - inset, t), uy + uh / 2.0))
+        else:
+            anchors.append((ux + uw / 2.0, lerp(uy + inset, uy + uh - inset, t)))
+    texts = []
+    for gi, (ax, ay) in enumerate(anchors):
+        # Anchor so the stack's rows are vertically centered on (ax, ay).
+        y0 = ay - (len(stack_lines) - 1) * LINE_H / 2.0
+        spans = "".join(
+            f'<tspan x="{ax}" dy="{0 if k == 0 else LINE_H}">{ln}</tspan>'
+            for k, ln in enumerate(stack_lines)
+        )
+        texts.append(
+            f'    <text id="{el_id}_g{gi + 1}" x="{ax}" y="{y0}" '
+            f'style="font-family:Arial;font-size:10px;fill:{color};'
+            f'text-anchor:middle;dominant-baseline:central;'
+            f'font-weight:bold">{spans}</text>'
+        )
+    return "\n".join(texts)
+
+
+def _merged_piggyback_stack(box_a, box_b):
+    """For a merged piggyback pair, return (stack_lines, positions):
+      - stack_lines: the DISTINCT per-side stack as "<h>H x 4W" rows, e.g. a
+        6+5 bay -> ["5H x 4W", "6H x 4W"].
+      - positions: total merged frames / stack size. Each bay's `heights` is
+        the per-side stack with every height DOUBLED and grouped (a 5'+6' bay
+        -> [5,5,6,6]); the two bays SHARE one physical side, so total frames =
+        A + B - one per-side stack. Divided by the distinct per-side stack
+        size, that's how many times the stack repeats along the merged bay
+        (a 6+5 pair -> 6 frames / stack [5,6] -> 3 positions)."""
+    def undouble(hs):
+        # [5,5,6,6] (each height duplicated, grouped) -> distinct stack [5,6].
+        return [hs[k] for k in range(0, len(hs), 2)]
+
+    ha = list((box_a or {}).get("heights") or [])
+    hb = list((box_b or {}).get("heights") or [])
+    stack = undouble(ha) or undouble(hb)
+    if not stack:
+        return [], 0
+    # Shared side = one distinct per-side stack; total frames drops it once.
+    total_frames = len(ha) + len(hb) - len(undouble(hb))
+    positions = max(1, total_frames // len(stack))
+    stack_lines = [f"{int(h)}H x 4W" for h in stack]
+    return stack_lines, positions
+
+
+def _write_frame_count(base_dir, height_counts):
+    """Write the physical frame count derived from the frames.svg annotations
+    to data.json as `frame_count`: a total plus a per-height breakdown.
+    data.json lives one level above base_dir (files/ -> ./data.json)."""
+    import json
+    data_path = os.path.join(os.path.dirname(base_dir.rstrip("/")) or ".",
+                             "data.json")
+    by_height = {str(h): height_counts[h] for h in sorted(height_counts)}
+    frame_count = {"total": sum(height_counts.values()), "by_height": by_height}
+    try:
+        data = {}
+        if os.path.exists(data_path):
+            with open(data_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        data["frame_count"] = frame_count
+        with open(data_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4)
+        print(f"✅ Step18 wrote frame_count to {data_path}: {frame_count}")
+    except Exception as e:
+        print(f"⚠️  Step18: could not write frame_count to {data_path}: {e}")
+
+
+def _overlay_rects(base_svg, out_path, box_layers, label, layer_boxes=None):
     """Overlay colored bounding rectangles onto the gray base. box_layers is
     a list of (boxes, color, prefix). One <rect> per box, drawn before
-    </svg> so it sits on top."""
+    </svg> so it sits on top. When `layer_boxes` is given, also draw the stack
+    LAYER count in each box's top-left corner."""
     els = []
     total = 0
+    height_counts = {}   # physical frame count per height (ft) across the sheet
+    layer_boxes = layer_boxes or []
+
+    def _tally(lines, times=1):
+        # Each "<h>H x 4W" line is one physical frame; add `times` of each.
+        for ln in lines:
+            m = re.match(r"\s*(\d+)H", ln)
+            if m:
+                h = int(m.group(1))
+                height_counts[h] = height_counts.get(h, 0) + times
+
+    # Flatten every color group into one indexed list so piggybacks can be
+    # detected across colors (green frame stacked on an orange one, etc.).
+    flat = []  # (x, y, w, h, color, prefix, i)
     for boxes, color, prefix in box_layers:
         for i, b in enumerate(boxes, 1):
             try:
@@ -150,12 +340,60 @@ def _overlay_rects(base_svg, out_path, box_layers, label):
                 w = float(b["width"]); h = float(b["height"])
             except (KeyError, TypeError, ValueError):
                 continue
-            els.append(
-                f'    <rect id="hl_{prefix}_{i}" x="{x}" y="{y}" '
-                f'width="{w}" height="{h}" '
-                f'style="fill:none;stroke:{color};stroke-width:3;stroke-opacity:1" />'
-            )
-            total += 1
+            flat.append((x, y, w, h, color, prefix, i))
+
+    coords = [(f[0], f[1], f[2], f[3]) for f in flat]
+    pig_pairs = _find_piggybacks(coords)
+    # Boxes that belong to a piggyback are drawn as ONE merged unit instead of
+    # two separate colored squares, so suppress them from the normal pass.
+    suppressed = {idx for pair in pig_pairs for idx in pair}
+
+    for k, (x, y, w, h, color, prefix, i) in enumerate(flat):
+        if k in suppressed:
+            continue
+        els.append(
+            f'    <rect id="hl_{prefix}_{i}" x="{x}" y="{y}" '
+            f'width="{w}" height="{h}" '
+            f'style="fill:none;stroke:{color};stroke-width:3;stroke-opacity:1" />'
+        )
+        match = _match_layer_box(x, y, w, h, layer_boxes)
+        if match is not None:
+            lines = _layer_label(match)
+            _tally(lines)
+            els.append(_corner_text(f"layers_{prefix}_{i}", x + 3, y + 3,
+                                    color, lines))
+        total += 1
+
+    # Piggybacks: two bays sharing a physical frame on one side. Draw ONE
+    # outline enclosing the pair (same green FRAME_COLOR as the other frames),
+    # and ONE merged annotation whose frame count counts the shared side ONCE
+    # (A's frames + B's frames - one shared stack).
+    for pk, (i, j) in enumerate(pig_pairs, 1):
+        ax, ay, aw, ah, _, _, _ = flat[i]
+        bx, by, bw, bh, _, _, _ = flat[j]
+        ux, uy = min(ax, bx), min(ay, by)
+        uw = max(ax + aw, bx + bw) - ux
+        uh = max(ay + ah, by + bh) - uy
+        pad = 2.0  # nudge the outline just outside both boxes
+        els.append(
+            f'    <rect id="piggyback_{pk}" x="{ux - pad}" y="{uy - pad}" '
+            f'width="{uw + 2 * pad}" height="{uh + 2 * pad}" '
+            f'style="fill:none;stroke:{FRAME_COLOR};stroke-width:3;stroke-opacity:1" />'
+        )
+        stack_lines, positions = _merged_piggyback_stack(
+            _match_layer_box(ax, ay, aw, ah, layer_boxes),
+            _match_layer_box(bx, by, bw, bh, layer_boxes))
+        if stack_lines:
+            # Repeat the per-side stack at each position along the merged bay:
+            # top->bottom for a tall (stacked) pair, left->right for a wide one.
+            _tally(stack_lines, times=positions)
+            els.append(_piggyback_label(
+                f"piggyback_layers_{pk}", ux, uy, uw, uh, FRAME_COLOR,
+                stack_lines, positions))
+        total += 1
+    if pig_pairs:
+        print(f"   frames: {len(pig_pairs)} piggyback pair(s) merged + outlined")
+
     if els:
         block = "\n" + "\n".join(els) + "\n"
         svg = base_svg.replace("</svg>", block + "</svg>", 1)
@@ -164,7 +402,7 @@ def _overlay_rects(base_svg, out_path, box_layers, label):
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(svg)
     print(f"✅ Step18 wrote {out_path} ({label}: {total} element(s) highlighted)")
-    return total
+    return total, height_counts
 
 
 def _build_wood_svg(base_svg, groups_dir, out_path):
@@ -269,8 +507,13 @@ def run_step18():
             boxes = _load_boxes(os.path.join(td, fname), lk)
             if boxes:
                 frame_layers.append((boxes, FRAME_COLOR, fname[:-5]))
-        _overlay_rects(base_svg, os.path.join(base_dir, "frames.svg"),
-                       frame_layers, "frames")
+        layer_boxes = _load_layer_boxes(os.path.join(td, "frame_layers.json"))
+        _, frame_height_counts = _overlay_rects(
+            base_svg, os.path.join(base_dir, "frames.svg"),
+            frame_layers, "frames", layer_boxes=layer_boxes)
+        # Persist the true PHYSICAL frame count (from the frames.svg labels:
+        # each layer x2, piggybacks share a side) + a per-height breakdown.
+        _write_frame_count(base_dir, frame_height_counts)
 
         # Wood beams: overlay synthesized lines from the per-group SVGs.
         _build_wood_svg(base_svg, os.path.join(base_dir, "groups"),

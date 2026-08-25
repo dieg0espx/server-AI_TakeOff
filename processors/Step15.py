@@ -97,15 +97,14 @@ def send_to_api(data, api_url):
         if 'slab_band' in data:
             print(f"   - Slab band results: {data['slab_band']}")
 
-        # Strip fields the DB payload doesn't need. Processing metadata is
+        # Strip fields the DB payload doesn't need: processing metadata is
         # large/noisy run diagnostics (902-entry logs, timings). step_results
-        # holds the raw per-key counts — create.php now reads counts from
-        # object_totals/color_breakdown (sent below), so step_results is no
-        # longer delivered. All stay in the local data.json for debugging but
-        # aren't sent. Copy so we don't mutate the caller's dict.
+        # IS sent — it now carries the crossbar per-color counts (create.php
+        # reads them for the crossbar_5/6/7 columns) and per-height frames.
+        # All stay in the local data.json for debugging. Copy so we don't
+        # mutate the caller's dict.
         DB_EXCLUDE = ("processing_logs", "processing_duration",
-                      "processing_start_time", "processing_end_time",
-                      "step_results")
+                      "processing_start_time", "processing_end_time")
         payload = {k: v for k, v in data.items() if k not in DB_EXCLUDE}
         dropped = [k for k in DB_EXCLUDE if k in data]
         if dropped:
