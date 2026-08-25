@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-Test: the DB payload sent by Step15.send_to_api excludes processing metadata
-AND step_results (create.php now reads counts from object_totals/
-color_breakdown), while leaving the caller's local data dict intact.
+Test: the DB payload sent by Step15.send_to_api excludes only processing
+metadata, while leaving the caller's local data dict intact. step_results IS
+delivered — it carries the crossbar per-color counts create.php reads for the
+crossbar_5/6/7 columns.
 
 We stub requests.post to capture exactly what gets POSTed (the json= kwarg),
 so this checks the real payload, not a reimplementation.
@@ -16,13 +17,14 @@ import Step15  # noqa: E402
 
 
 EXCLUDED = {"processing_logs", "processing_duration",
-            "processing_start_time", "processing_end_time", "step_results"}
+            "processing_start_time", "processing_end_time"}
 
-# create.php reads counts from object_totals/color_breakdown, so step_results
-# is no longer delivered.
+# step_results is the count source create.php reads (crossbars, per-height
+# frames, per-size beams, shores), so it IS sent. color_breakdown /
+# object_totals / frame_totals are stripped upstream in main.py, so they aren't
+# part of the payload contract here.
 KEPT = {"company", "jobsite", "upload_id", "svg_urls",
-        "object_totals", "color_breakdown", "crossbar_totals",
-        "frame_totals", "text"}
+        "step_results", "text"}
 
 
 class _FakeResp:
@@ -61,7 +63,7 @@ def _capture_payload(monkeypatch_post):
     return captured
 
 
-def test_payload_excludes_metadata_and_step_results():
+def test_payload_excludes_metadata_keeps_step_results():
     data = _make_data()
     orig_post = Step15.requests.post
     captured = _capture_payload(orig_post)
@@ -101,4 +103,4 @@ if __name__ == "__main__":
             fn()
             print(f"✅ {name}")
             passed += 1
-    print(f"\n{passed} test(s) passed — DB payload excludes metadata, excludes step_results.")
+    print(f"\n{passed} test(s) passed — DB payload excludes metadata, keeps step_results.")

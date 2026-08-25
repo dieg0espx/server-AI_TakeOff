@@ -1210,9 +1210,6 @@ def run_step13():
         if frame_spec is not None:
             data['default_frame_spec'] = frame_spec
 
-        # Store the cross bar lookup tables (frame size + span -> size + color).
-        data['cross_bar_tables'] = CROSS_BAR_TABLES
-
         with open(data_path, 'w') as f:
             json.dump(data, f, indent=4)
         print(f"\n✅ Saved default frame spec to data.json")

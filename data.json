@@ -4,12 +4,11 @@
     "upload_id": "11n0aJ4lYynS_M3AXGi0UGBT154g-K7cU",
     "extracted_text": "\n--- Page 1 ---\nX\n\nLO built\n\n- wie? \"OIC Qe) ~ \u00ae\n\n6\n\n#4 POST SHORE TYP.\n\n#3 POST SHORE TYP.\n\n12'-4X6\n@ 19.2\" O/C\n\n@ 19.2\" 0/C\n\n=\noa\n4\nQ\n\nBUILD UP UNDER SLAB\n(BY CONTRACTOR)\n\n9\nKR\n4\n: ae 14! 16\" er\nip ils My Ee 2419 agitor SB\n~@ 14' 9' \\ WEL. 89.95m \u2014 alz\n+ il\\ A, @\n10' 16'\n. ofS\n? g ~io ll\n\u2018 A a)\n\u2014 oI 9 3\n= |\ny ES 5\" 0\"\n\u2014 | ol\n2 @\n-/ | ae\nio 40-6\" 40-6\" agg\n*\neo\nc ni\n_/ o\nne e\n\u00a9\n* t ' \" t ' Ww t ' \"\n5 10'-6 10'- 6 10'-6\n| oS\n+ 16' 14\" 14\" 14\" <5 20'\ns\nT 16\" 14\" 14\" 14\" 14\"\n[e)\na = 38\nKR als\n16 14' e 10-6\"\n+\n: ole\n\u00b0 XIN\n5K ye\n\u00a9\n| 76) 6 / 14 oS 44!\nx m | ts\n\u00a9\n16 14!\n+ \u00ab|\n: lS =\nKo) xIe a\nI +N &|\nDs els os ]\n2 \u00ae r\n+ t cl ha f {\n16) [S o8\nmm Ey xP\nne |\n300x450 DP.\nR/C BEAM\n\nFOR 4\u2019 HIGH FRAMES USE\nSCREW JACK BASE PLATE\nBOTTOM AND Rae U. PLATE ON TOP\n\nf\n\n@ [9.2 IC (IZ pes.)\n\n@ /19.2\" O/C\nunder step\n\n300x500 DP.\nR/C BEAM\n\nsuo BY contrabror\n\n> \u00ae @\u20ac\n\nLEVEL 2 SUSPENDED SLAB SHORING PLAN:\n\n10.5\u201d DEEP SLAB TYPICAL U.N.O.\n24\u201d DEEP SLAB BAND TYPICAL U.N.O.\n\nSCALE 1/8\u201d=17-0\"\n(182 P.S.F.)\n(350 P.S.F.)\n\nALL FRAMES TO BE 5\u2019+5\u2019 HIGH X 4\u2019 WIDE HEAVY DUTY(10 K/LEG) WITH 7\u2019\u20140\u201d BRACING TYP. U.N.O.\nNO SHORE IS REQUIRED UNDER SLAB NOR SLAB BAND TYP. UNLESS SHOWN OR\nMARKED AS \u201dX\u201d FOR #2, \"[X}\u201d FOR #3 & \"&)\u201d FOR #4 POST SHORE TYP.(SEE PLAN FOR LOCATION).\n\nPLYWOOD TO BE MIN. 3/4\u201d D. FIR #1 OR BETTER.\n\n4X6 WOOD JOISTS SUPPLIED BY TTF SCAFFOLDING SHALL NOT BE USED FOR PACKING\n\nOR CUT SHORT FOR OTHER PURPOSES.\nFOR GENERAL NOTES AND TYPICAL DETAILS SEE DRAWING F\u20141.\n\nINSPECTION IS REQUIRED BY UNDERSIGNED P. ENG. PRIOR TO POURING CONCRETE.\n\n(48 HOURS NOTICE PLEASE).\n\nNOTES :\n\nTHIS DRAWING SHALL BE READ IN CONJUNCTION WITH ARCHITECTURAL AND STRUCTURAL DRAWINGS.\nCONTRACTOR TO CHECK AND CONFIRM ALL DIMENSIONS & ELEVATIONS PRIOR TO SHIPMENT OF EQUIPMENT.\n\nBUILD UP UNDER SLOPE FOR STAIRS\n(BY CONTRACTOR)\n\nGREUTER ENGINEERING LTD.\nEGBC PERMIT NO. 1002364\n\nFILE: GE-3548-1\n\n\"22932999\n\n2025-11-12\n\nREVISIONS | BY\n\nwww.ttfscaffolding.com\n\nTEL. 778 898 5301\nEmail: info@ttfscaffolding.com\n\nTTF SCAFFOLDING Co. Ltd.\n\nJOB:\n\nKWANTLEN\nPARK\nSECONDARY\n\nSCHOOL\nADDITION\n\n10441 - 132 STREET,\nSURREY, B.C.\n\nCONTR:\n\nDC\nFORMING LTD.\n\nTITLE:\n\nLEVEL 2 SUSPENDED\nSLAB SHORING PLAN\n& DETAILS\n\nDate: NOV.04.2025\n\nScales: AS SHOWN\n\nF\nENG] Nees\u201d\n\nDrawn by: F.T.\n\nJob:\n\nSheet: F-2\n\n\n",
     "step_results": {
-        "step5_blue_X_shapes": 65,
-        "step6_red_squares": 46,
-        "step7_pink_shapes": 13,
-        "step8_green_rectangles": 96,
-        "step9_orange_rectangles": 10,
-        "step11_yellow_shapes": 0,
+        "crossbar_Red": 28,
+        "crossbar_Yellow": 762,
+        "frame_4": 28,
+        "frame_5": 669,
+        "frame_6": 133,
         "alumBeam5": 5,
         "alumBeam6": 2,
         "alumBeam7": 9,
@@ -24,78 +23,8 @@
         "alumBeam16": 54,
         "alumBeam18": 5,
         "alumBeam20": 8,
-        "wood_9ft": 186,
-        "wood_10ft": 63,
-        "wood_12ft": 193
-    },
-    "cross_bar_tables": [
-        {
-            "frame_sizes": [
-                "6'",
-                "5'"
-            ],
-            "rows": [
-                {
-                    "span": "10'",
-                    "cross_bar_size": "10x4",
-                    "color": "Purple"
-                },
-                {
-                    "span": "7'",
-                    "cross_bar_size": "7x4",
-                    "color": "Yellow"
-                },
-                {
-                    "span": "5'",
-                    "cross_bar_size": "5x4",
-                    "color": "Green"
-                },
-                {
-                    "span": "4'",
-                    "cross_bar_size": "4x4",
-                    "color": "Blue"
-                }
-            ]
-        },
-        {
-            "frame_sizes": [
-                "4'",
-                "3'"
-            ],
-            "rows": [
-                {
-                    "span": "10'",
-                    "cross_bar_size": "10x2",
-                    "color": "Pink"
-                },
-                {
-                    "span": "7'",
-                    "cross_bar_size": "7x2",
-                    "color": "Red"
-                },
-                {
-                    "span": "5'",
-                    "cross_bar_size": "5x2",
-                    "color": "Orange"
-                },
-                {
-                    "span": "4'",
-                    "cross_bar_size": "4x2",
-                    "color": "White"
-                }
-            ]
-        }
-    ],
-    "crossbar_totals": {
-        "crossbar_Green": 8,
-        "crossbar_Red": 18,
-        "crossbar_Yellow": 212,
-        "total": 238
-    },
-    "frame_totals": {
-        "frame_2": 93,
-        "frame_4": 13,
-        "total": 106
+        "x_shores": 65,
+        "square_shores": 46
     },
     "svg_urls": {
         "step11": "https://ftp-images.ttfconstruction.com/AI-takeOff/08_10_2026_23_39_52.svg",
@@ -106,152 +35,6 @@
         "wood": "https://ftp-images.ttfconstruction.com/AI-takeOff/08_10_2026_23_40_51_wood.svg"
     },
     "rewritten_text": "## COMPREHENSIVE SHORING AND SCAFFOLDING PLAN: LEVEL 2 SUSPENDED SLAB\n\n**DOCUMENT REFERENCE:** F-2\n**DATE OF ISSUE:** November 04, 2025\n**REVISION DATE:** November 12, 2025\n\n---\n\n### 1.0 PROJECT INFORMATION\n\n*   **Project Name:** Kwantlen Park Secondary School Addition\n    *   **Description:** This document pertains to the shoring and scaffolding requirements for the new addition to Kwantlen Park Secondary School.\n*   **Project Location:** 10441 - 132 Street, Surrey, British Columbia, Canada\n    *   **Geographic Context:** This address specifies the precise site for the construction activities governed by this shoring plan.\n*   **Client/Owner:** (Implicitly, the School District or relevant governmental body overseeing the Kwantlen Park Secondary School Addition project.)\n*   **General Contractor:** (Not explicitly stated, but responsible for overall project execution.)\n*   **Formwork Contractor:** DC FORMING LTD.\n    *   **Role:** Responsible for the installation, maintenance, and removal of all formwork and associated shoring systems as detailed herein.\n*   **Engineering Firm (Design & Review):** GREUTER ENGINEERING LTD.\n    *   **EGBC Permit No.:** 1002364\n    *   **Role:** Responsible for the structural design, analysis, and certification of the shoring system to ensure it safely supports the imposed loads during concrete placement and curing. Their professional engineer (P.Eng.) is the undersigned authority for inspection and approval.\n    *   **File Reference:** GE-3548-1\n*   **Scaffolding & Shoring Equipment Supplier:** TTF SCAFFOLDING Co. Ltd.\n    *   **Contact Information:**\n        *   Website: www.ttfscaffolding.com\n        *   Telephone: 778 898 5301\n        *   Email: info@ttfscaffolding.com\n    *   **Role:** Supplier of specified shoring frames, post shores, wood joists, and related components.\n*   **Drawing Title:** Level 2 Suspended Slab Shoring Plan & Details\n    *   **Purpose:** This drawing provides the specific layout, dimensions, material specifications, and installation requirements for the temporary shoring system designed to support the Level 2 suspended concrete slab and associated structural elements during construction.\n*   **Drawing Number:** F-2\n    *   **Context:** This is the second sheet in a series of formwork and shoring drawings, with F-1 likely containing general notes and typical details.\n*   **Scale:** As Shown (Nominal 1/8\" = 1'-0\")\n    *   **Clarification:** The primary scale for the plan view is 1/8 inch equals 1 foot, meaning 1/8\" on the drawing represents 12 inches (1 foot) in actual construction. All dimensions should be verified on site, and the scale should not be used for direct measurement.\n*   **Drawn By:** F.T.\n    *   **Role:** Drafter responsible for the preparation of this drawing under the supervision of the Professional Engineer.\n*   **Engineer's Seal/Signature:** F. ENG. (Implied for certification by the Professional Engineer from Greuter Engineering Ltd.)\n\n---\n\n### 2.0 GENERAL SCOPE AND PURPOSE\n\nThis document outlines the design and installation requirements for the temporary shoring system necessary to support the freshly placed concrete for the Level 2 suspended slab, slab bands, and reinforced concrete beams at the Kwantlen Park Secondary School Addition project. The shoring system is designed to safely carry all anticipated construction loads, including the weight of wet concrete, formwork, construction personnel, and equipment, until the concrete achieves sufficient strength to be self-supporting.\n\nThe information provided herein is critical for ensuring the structural integrity of the building during the concrete pouring and curing phases, preventing premature deflections, cracks, or structural failures. All work must strictly adhere to these specifications, relevant building codes, and industry best practices.\n\n---\n\n### 3.0 STRUCTURAL SPECIFICATIONS - SUPPORTED ELEMENTS\n\nThe shoring system is specifically designed to support the following permanent structural elements of the Level 2 floor system:\n\n*   **3.1 Suspended Slab (Typical U.N.O. - Unless Noted Otherwise)**\n    *   **Depth:** 10.5 inches (266.7 mm) deep.\n    *   **Function:** This is the primary horizontal structural element forming the floor of Level 2, designed to carry floor live and dead loads.\n    *   **Load Significance:** The shoring must support the full weight of this 10.5-inch thick wet concrete slab, formwork, and associated construction loads.\n*   **3.2 Slab Band (Typical U.N.O. - Unless Noted Otherwise)**\n    *   **Depth:** 24 inches (609.6 mm) deep.\n    *   **Function:** Slab bands are thickened portions of the slab, acting as shallow, wide beams integrated within the slab depth, typically used to transfer loads to columns or walls, or to accommodate larger spans.\n    *   **Load Significance:** Due to their increased depth, slab bands impose significantly higher loads on the shoring system compared to the typical slab areas.\n*   **3.3 Reinforced Concrete (R/C) Beams**\n    *   **Beam Type 1:** 300mm x 450mm Deep R/C Beam\n        *   **Dimensions:** 300 mm (11.8 inches) wide by 450 mm (17.7 inches) deep.\n        *   **Function:** These are primary structural beams designed to carry loads from the slab and transfer them to columns or other supporting elements.\n        *   **Load Significance:** These beams represent concentrated loads on the shoring system, requiring specific support configurations.\n    *   **Beam Type 2:** 300mm x 500mm Deep R/C Beam\n        *   **Dimensions:** 300 mm (11.8 inches) wide by 500 mm (19.7 inches) deep.\n        *   **Function:** Similar to the 300x450 DP beams, but with increased depth to carry heavier loads or span longer distances.\n        *   **Load Significance:** These beams impose the heaviest concentrated loads on the shoring system, requiring robust and precisely located support.\n*   **3.4 Build Up Under Slab (By Contractor)**\n    *   **Description:** This refers to localized areas where the concrete slab thickness or elevation may vary, requiring the contractor to construct custom formwork and shoring to accommodate these changes. This could include depressions, raised areas, or transitions.\n    *   **Contractor Responsibility:** The contractor is responsible for designing and implementing appropriate shoring for these specific areas, ensuring it integrates seamlessly with the overall shoring plan and meets all load requirements.\n*   **3.5 Build Up Under Slope for Stairs (By Contractor)**\n    *   **Description:** This refers to the formwork and shoring required to support the concrete for stair flights and landings, which involve sloped and stepped surfaces.\n    *   **Contractor Responsibility:** The contractor must develop and implement a shoring solution for these sloped elements, ensuring stability, accurate geometry, and adequate support for the wet concrete and formwork. This often involves intricate blocking and bracing.\n\n---\n\n### 4.0 SHORING SYSTEM COMPONENTS AND SPECIFICATIONS\n\nThe shoring system is comprised of a combination of adjustable post shores and heavy-duty frame scaffolding, designed for maximum flexibility and load capacity.\n\n*   **4.1 Post Shores (Adjustable Steel Shores)**\n    *   **General Description:** Individual, adjustable steel props used for temporary support of formwork, beams, or slabs. They consist of an inner tube, an outer tube, a base plate, a head plate, and an adjustment pin/collar.\n    *   **Types Specified:**\n        *   **#2 Post Shore (Typical):** Indicated by an \"X\" on the plan. This represents a standard duty post shore, typically used for lighter loads or infill areas where frame shoring is not feasible. Specific capacity to be confirmed by manufacturer's data, but generally lower than #3 or #4.\n        *   **#3 Post Shore (Typical):** Indicated by \"[X]\" on the plan. This represents a medium-duty post shore, offering increased load capacity over #2 shores. Used in areas requiring more support than standard, but less than heavy-duty.\n        *   **#4 Post Shore (Typical):** Indicated by \"&)\" on the plan. This represents a heavy-duty post shore, designed for significant concentrated loads or areas requiring maximum support. These are typically used under beams or in conjunction with slab bands where frame shoring is not present.\n    *   **Function:** To provide vertical support to the primary shoring members (joists, stringers) or directly to the formwork, transferring loads to the supporting surface below.\n    *   **Adjustment:** Post shores allow for precise height adjustment to achieve the required soffit elevations and to facilitate stripping.\n*   **4.2 Heavy-Duty Shoring Frames**\n    *   **Configuration:** All frames are specified as 5 feet + 5 feet high by 4 feet wide, forming a total vertical height of 10 feet (3.05 meters) per stack, or adaptable for lower heights as needed.\n    *   **Dimensions:**\n        *   **Height:** 5'-0\" (1.52 m) per frame section, typically stacked to achieve required height (e.g., 5'+5' = 10'-0\" total height).\n        *   **Width:** 4'-0\" (1.22 m) wide. This dimension dictates the spacing between parallel rows of frames.\n    *   **Load Capacity:** 10 Kips (10,000 pounds or 44.48 kN) per leg.\n        *   **Significance:** This is a substantial load rating, indicating these are robust frames capable of supporting heavy concrete structures. A typical 4-leg frame would have a capacity of 40 Kips (40,000 lbs) if all legs are equally loaded. This capacity must not be exceeded.\n    *   **Function:** To provide a stable, high-capacity support structure for the formwork and concrete, particularly suitable for larger areas and higher loads.\n*   **4.3 Wood Joists (Primary Shoring Members)**\n    *   **Material:** 4-inch by 6-inch (4\"x6\") dimensional lumber joists.\n    *   **Grade:** Heavy-duty structural grade. (Implies a high strength rating, e.g., No. 1 or better, dense structural lumber such as Douglas Fir-Larch).\n    *   **Length:** 12 feet (3.66 meters) long.\n    *   **Spacing:** Spaced at 19.2 inches (487.68 mm) on center (O/C).\n        *   **Significance:** This spacing is critical for distributing the slab load uniformly to the underlying shoring frames or post shores and for ensuring the joists themselves do not overstress or deflect excessively.\n    *   **Function:** These joists are the primary horizontal members that directly support the plywood decking and the wet concrete. They transfer the slab load to the shoring frames or post shores below.\n    *   **Restriction:** **IMPORTANT NOTE:** These 4x6 wood joists supplied by TTF Scaffolding **SHALL NOT BE USED FOR PACKING OR CUT SHORT FOR OTHER PURPOSES.** This restriction is crucial to maintain the structural integrity of the designed shoring system and prevent unauthorized modifications that could compromise safety.\n*   **4.4 Plywood Decking (Formwork Surface)**\n    *   **Minimum Thickness:** 3/4 inch (19.05 mm).\n    *   **Material Grade:** Douglas Fir #1 or better.\n        *   **Significance:** Douglas Fir #1 grade plywood offers excellent strength, stiffness, and durability for formwork applications, minimizing deflection and providing a smooth concrete finish. \"Or better\" allows for higher grades if available.\n    *   **Function:** Forms the direct contact surface for the wet concrete, creating the desired shape and finish of the suspended slab and beams. It transfers the concrete load to the underlying wood joists.\n*   **4.5 Screw Jacks and U-Heads**\n    *   **Screw Jack Base Plate:** Required at the bottom of 4-foot high frames.\n        *   **Function:** Provides a stable bearing surface for the frame on the supporting structure (e.g., existing slab, ground) and allows for fine vertical adjustment to achieve precise elevations and for pre-loading/stripping.\n    *   **U-Plate (U-Head Jack):** Required on top of 4-foot high frames.\n        *   **Function:** A U-shaped head that cradles and supports the wood joists or stringers, preventing lateral movement and ensuring proper load transfer from the horizontal members to the vertical shoring frames. Also allows for fine vertical adjustment.\n*   **4.6 Bracing**\n    *   **Type:** 7'-0\" (2.13 m) Bracing, Typical U.N.O. (Unless Noted Otherwise).\n    *   **Function:** Bracing (typically cross-bracing or diagonal bracing) is essential for the stability of the shoring frames, preventing racking, buckling, and lateral movement. It ensures the shoring system acts as a rigid, integrated structure.\n    *   **Installation:** Bracing must be installed as per manufacturer's instructions and engineering drawings to ensure full stability and load capacity of the frame system.\n\n---\n\n### 5.0 DIMENSIONS, LAYOUTS, AND ELEVATIONS\n\nThis section details the critical dimensions, spacing, and elevations for the shoring system. All dimensions are in feet and inches unless otherwise noted.\n\n*   **5.1 Overall Layout and Grid Dimensions**\n    *   The plan view indicates a primary shoring grid with various bay sizes. Key dimensions include:\n        *   **Longitudinal Spans:**\n            *   40'-6\" (12.34 m) sections, repeated. This represents significant spans requiring continuous shoring support.\n            *   10'-6\" (3.20 m) sections, repeated.\n        *   **Transverse Spans:**\n            *   16'-0\" (4.88 m)\n            *   14'-0\" (4.27 m)\n            *   10'-0\" (3.05 m)\n            *   5'-0\" (1.52 m)\n    *   **Purpose:** These dimensions define the overall footprint of the shoring system and the spacing of primary support lines, ensuring adequate support for the entire suspended slab area.\n*   **5.2 Shoring Component Spacing**\n    *   **Wood Joists:** 4x6 wood joists are to be spaced at 19.2 inches (487.68 mm) on center (O/C) throughout the typical slab areas.\n        *   **Purpose:** This precise spacing is engineered to distribute the wet concrete load uniformly to the underlying shoring frames/post shores and to prevent excessive deflection or failure of the joists.\n    *   **Post Shore/Frame Spacing:** The specific locations for #2, #3, and #4 post shores, as well as the heavy-duty frames, are indicated on the plan. The layout shows varying spacing based on local load requirements and structural elements.\n        *   **Example Spacing (from plan, interpreted):**\n            *   Areas with 10'-6\" spacing for shoring lines.\n            *   Areas with 16'-0\" and 14'-0\" spacing for shoring lines.\n            *   Specific areas with 5'-0\" spacing, likely under concentrated loads or beams.\n        *   **Purpose:** The variable spacing ensures that adequate support is provided where needed, with closer spacing under heavier elements like beams and slab bands, and wider spacing in typical slab areas.\n*   **5.3 Elevations**\n    *   **EL. 89.95m:** Elevation 89.95 meters above datum.\n        *   **Purpose:** This metric elevation likely indicates the finished top of concrete (T.O.C.) elevation for a specific section of the slab or a critical reference point. All shoring must be set to achieve the correct formwork soffit elevation to match this.\n    *   **EL. 230.17:** Elevation 230.17 feet above datum.\n        *   **Purpose:** This imperial elevation (likely representing 230 feet and 2.04 inches) indicates another critical finished concrete elevation or a reference point for the shoring system. The contractor must ensure the shoring system is accurately set to achieve this elevation.\n    *   **General:** All shoring elevations must be precisely set to accommodate the required slab and beam depths, ensuring the finished concrete surfaces are at the specified architectural and structural elevations. Laser levels and survey equipment are essential for accurate setup.\n\n---\n\n### 6.0 LOAD SPECIFICATIONS AND CAPACITIES\n\nThe shoring system is designed to safely support the following loads:\n\n*   **6.1 Design Live and Dead Loads (Supported Structure)**\n    *   **Typical Suspended Slab Load:** 182 Pounds per Square Foot (PSF) (8.72 kPa).\n        *   **Components:** This load primarily accounts for the weight of the 10.5-inch thick wet concrete slab itself, plus an allowance for formwork, construction personnel, and temporary equipment.\n        *   **Significance:** This is the distributed load that the shoring system must support across typical slab areas.\n    *   **Slab Band Load:** 350 Pounds per Square Foot (PSF) (16.76 kPa).\n        *   **Components:** This higher load accounts for the increased volume and weight of the 24-inch deep wet concrete slab bands, plus formwork, personnel, and equipment.\n        *   **Significance:** This higher distributed load necessitates closer shoring support or the use of heavy-duty shoring components under slab band areas.\n    *   **Reinforced Concrete Beams:** The 300x450 DP and 300x500 DP R/C beams represent significant concentrated line loads.\n        *   **Significance:** These require direct and robust support from shoring frames or heavy-duty post shores, often with additional stringers or strongbacks to distribute the beam load effectively to the vertical supports.\n*   **6.2 Shoring Component Capacities**\n    *   **Heavy-Duty Frames:** 10 Kips (10,000 pounds or 44.48 kN) per leg.\n        *   **Significance:** This is the ultimate vertical load capacity for each individual leg of the heavy-duty shoring frames. The total capacity of a frame is the sum of its leg capacities, but it is critical to ensure that no single leg is overloaded and that the load is distributed evenly. This capacity is a critical design parameter and must not be exceeded.\n    *   **Post Shores (#2, #3, #4):** Specific capacities for each post shore type must be obtained from the manufacturer's technical data and verified against the design loads. Generally, #4 > #3 > #2 in terms of capacity.\n        *   **Significance:** Post shores are selected based on the localized load requirements and their certified capacity.\n*   **6.3 Load Transfer Mechanism**\n    *   The load from the wet concrete is transferred sequentially:\n        1.  **Concrete to Plywood Decking:** Direct contact.\n        2.  **Plywood Decking to 4x6 Wood Joists:** The joists are directly beneath the plywood.\n        3.  **4x6 Wood Joists to U-Heads/Shoring Frames/Post Shores:** The joists rest in the U-heads of the frames or on the head plates of post shores.\n        4.  **Shoring Frames/Post Shores to Supporting Surface:** The base plates of the frames or post shores transfer the load to the existing concrete slab or ground below.\n    *   **Critical Note:** The supporting surface below the shoring (e.g., existing slab, compacted soil) must be verified by the contractor and, if necessary, by a geotechnical engineer, to ensure it has adequate bearing capacity to safely support the entire shoring load without settlement or failure.\n\n---\n\n### 7.0 MATERIAL REQUIREMENTS AND QUALITY STANDARDS\n\nAll materials used in the shoring system must meet or exceed the following specifications to ensure safety and performance.\n\n*   **7.1 Plywood Decking**\n    *   **Type:** Douglas Fir (D. FIR) Plywood.\n    *   **Grade:** #1 or better.\n        *   **Specification:** This refers to a high-quality structural grade plywood, free from major defects that could compromise its strength or provide an unsatisfactory concrete finish. It must be suitable for concrete formwork, often requiring exterior grade or overlaid plywood for durability and reuse.\n    *   **Minimum Thickness:** 3/4 inch (19.05 mm).\n        *   **Significance:** This thickness is critical for resisting the hydrostatic pressure of wet concrete and minimizing deflection between joists.\n*   **7.2 Wood Joists**\n    *   **Type:** Dimensional Lumber.\n    *   **Size:** 4 inches by 6 inches (nominal, actual dimensions will be slightly less, e.g., 3.5\" x 5.5\").\n    *   **Grade:** Heavy-Duty Structural Grade.\n        *   **Specification:** This implies a high-strength lumber species (e.g., Douglas Fir-Larch, Southern Yellow Pine) graded for structural applications (e.g., No. 1 or better, Select Structural). Lumber must be free of excessive knots, splits, or other defects that would reduce its load-carrying capacity.\n    *   **Length:** 12 feet (3.66 meters).\n    *   **Condition:** Must be in good condition, free from rot, severe warping, or damage.\n*   **7.3 Shoring Frames and Components**\n    *   **Type:** Heavy-Duty Steel Scaffolding Frames.\n    *   **Capacity:** 10 Kips (10,000 lbs) per leg minimum.\n    *   **Condition:** All frames, screw jacks, U-heads, pins, and bracing components must be in excellent working condition, free from excessive rust, deformation, or damage. Any damaged components must be immediately removed from service and replaced.\n    *   **Manufacturer:** Components supplied by TTF Scaffolding Co. Ltd. or approved equivalent. All components must be compatible with each other.\n*   **7.4 Fasteners and Accessories**\n    *   All connections, including bracing attachment, must utilize appropriate fasteners (e.g., pins, bolts, clamps) as specified by the manufacturer and engineering design, ensuring secure and rigid connections.\n\n---\n\n### 8.0 INSTALLATION REQUIREMENTS AND PROCEDURES\n\nThe installation of the shoring system must be executed with precision and strict adherence to these guidelines.\n\n*   **8.1 General Installation Guidelines**\n    *   **Foundation:** The supporting surface for all shoring (e.g., existing slab, compacted grade) must be level, stable, and capable of supporting the full design loads without settlement. If required, mudsills or sole plates must be used to distribute loads over a larger area.\n    *   **Layout:** The shoring layout must precisely match the plan, including the location of all frames, post shores, and joists. Markings on the supporting slab are recommended for accuracy.\n    *   **Plumb and Level:** All vertical shoring members (frames, post shores) must be installed plumb (vertically true), and all horizontal members (joists, bracing) must be level, unless otherwise specified for slopes.\n    *   **Stability:** The entire shoring system must be stable and rigid, with all connections properly secured.\n*   **8.2 Specific Component Placement**\n    *   **Heavy-Duty Frames:**\n        *   Install frames in rows as indicated on the plan.\n        *   Utilize 5'+5' high frames to achieve a 10'-0\" total height where required, or single 5'-0\" frames for lower elevations.\n        *   Ensure frames are 4'-0\" wide, establishing the transverse spacing between rows.\n        *",
-    "object_totals": {
-        "color_shapes": 230,
-        "alum_beams": 232,
-        "wood": 442,
-        "crossbars": 238,
-        "frames": 106,
-        "total": 1248
-    },
-    "color_breakdown": {
-        "color_shapes": {
-            "blue": {
-                "hex": "#0000ff",
-                "count": 65
-            },
-            "red": {
-                "hex": "#ff0000",
-                "count": 46
-            },
-            "pink": {
-                "hex": "#ff00cd",
-                "count": 13
-            },
-            "green": {
-                "hex": "#70ff00",
-                "count": 96
-            },
-            "orange": {
-                "hex": "#ff8c00",
-                "count": 10
-            },
-            "yellow": {
-                "hex": "#ffff00",
-                "count": 0
-            }
-        },
-        "alum_beams": {
-            "alumBeam5": {
-                "hex": "#e6194b",
-                "color": "red",
-                "count": 5
-            },
-            "alumBeam6": {
-                "hex": "#f58231",
-                "color": "orange",
-                "count": 2
-            },
-            "alumBeam7": {
-                "hex": "#ffe119",
-                "color": "yellow",
-                "count": 9
-            },
-            "alumBeam8": {
-                "hex": "#bfef45",
-                "color": "lime",
-                "count": 13
-            },
-            "alumBeam9": {
-                "hex": "#3cb44b",
-                "color": "green",
-                "count": 34
-            },
-            "alumBeam10": {
-                "hex": "#42d4f4",
-                "color": "cyan",
-                "count": 19
-            },
-            "alumBeam106": {
-                "hex": "#4363d8",
-                "color": "blue",
-                "count": 17
-            },
-            "alumBeam11": {
-                "hex": "#911eb4",
-                "color": "purple",
-                "count": 1
-            },
-            "alumBeam12": {
-                "hex": "#f032e6",
-                "color": "magenta",
-                "count": 13
-            },
-            "alumBeam13": {
-                "hex": "#a9a9a9",
-                "color": "gray-blue",
-                "count": 8
-            },
-            "alumBeam14": {
-                "hex": "#9a6324",
-                "color": "brown",
-                "count": 44
-            },
-            "alumBeam16": {
-                "hex": "#469990",
-                "color": "teal",
-                "count": 54
-            },
-            "alumBeam18": {
-                "hex": "#000075",
-                "color": "navy",
-                "count": 5
-            },
-            "alumBeam20": {
-                "hex": "#808000",
-                "color": "olive",
-                "count": 8
-            }
-        },
-        "wood": {
-            "wood_9ft": {
-                "hex": "#ffff00",
-                "count": 186
-            },
-            "wood_10ft": {
-                "hex": "#ffff00",
-                "count": 63
-            },
-            "wood_12ft": {
-                "hex": "#ffff00",
-                "count": 193
-            }
-        },
-        "crossbars": {
-            "Green": {
-                "hex": "#00ff00",
-                "count": 8
-            },
-            "Red": {
-                "hex": "#ff0000",
-                "count": 18
-            },
-            "Yellow": {
-                "hex": "#ffff00",
-                "count": 212
-            }
-        },
-        "frames": {
-            "frame_2": {
-                "hex": "#70ff00",
-                "count": 93
-            },
-            "frame_4": {
-                "hex": "#70ff00",
-                "count": 13
-            }
-        }
-    },
     "processing_logs": [
         {
             "timestamp": "2026-08-10T23:39:34.795575",

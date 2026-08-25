@@ -697,7 +697,8 @@ def run_pipeline_with_logging(upload_id: str):
     # Step18: per-category highlight SVGs (shores/alumBeams/frames/wood).
     # Must run BEFORE the cleanup below wipes files/groups + files/tempData,
     # since wood.svg reads the per-group wood SVGs and the others read
-    # identified_elements.json.
+    # identified_elements.json. Step18 also writes the physical frame_count
+    # (from frames.svg), which the step_results rebuild below consumes.
     try:
         print(f"\n{'='*60}")
         print("📋 Running Step18 (per-category highlight SVGs)")
@@ -709,6 +710,65 @@ def run_pipeline_with_logging(upload_id: str):
             print("⚠️  Step18 failed, continuing...")
     except Exception as e:
         print(f"⚠️  Error in Step18: {e}")
+
+    # Rebuild step_results to hold ONLY the crossbar per-color counts and the
+    # PER-HEIGHT frame counts from frames.svg (frame_4/5/6, no roll-up total).
+    # The DB-facing summaries (object_totals/color_breakdown) already carry the
+    # shape/beam/wood counts, and cross_bar_tables is a static lookup — none
+    # belong in the per-job output, so step_results is reduced to these pieces.
+    try:
+        if os.path.exists(data_file):
+            with open(data_file, "r") as f:
+                data_clean = json.load(f)
+            # Crossbar per-color counts (drop the roll-up "total" key).
+            cbt = data_clean.get("crossbar_totals") or {}
+            step_results = {k: v for k, v in cbt.items() if k != "total"}
+            # Per-height frames from Step18's frame_count.by_height, flattened
+            # to frame_<h> keys (no lumped total).
+            by_height = (data_clean.get("frame_count") or {}).get("by_height") or {}
+            for h, cnt in sorted(by_height.items()):
+                step_results[f"frame_{h}"] = cnt
+            # Per-size alum-beam counts (alumBeam<size>) from color_breakdown.
+            # Read BEFORE color_breakdown is popped below.
+            cbd = data_clean.get("color_breakdown") or {}
+            def _cnt(entry):
+                return entry.get("count") if isinstance(entry, dict) else None
+            for size, entry in (cbd.get("alum_beams") or {}).items():
+                c = _cnt(entry)
+                if c is not None:
+                    step_results[size] = c
+            # Shores, split by type: blue X-shapes + red squares.
+            shapes = cbd.get("color_shapes") or {}
+            x_sh = _cnt(shapes.get("blue"))
+            sq_sh = _cnt(shapes.get("red"))
+            if x_sh is not None:
+                step_results["x_shores"] = x_sh
+            if sq_sh is not None:
+                step_results["square_shores"] = sq_sh
+            data_clean["step_results"] = step_results
+            data_clean.pop("cross_bar_tables", None)
+            # crossbar_totals is now redundant — its per-color counts live in
+            # step_results above, and object_totals (computed earlier) already
+            # consumed its total. Drop it from the file.
+            data_clean.pop("crossbar_totals", None)
+            # color_breakdown is dropped too: object_totals keeps the section
+            # sums and step_results keeps crossbars + per-height frames. (The
+            # DB's per-item columns lose their source and default to 0.)
+            data_clean.pop("color_breakdown", None)
+            # frame_totals (annotation count) is redundant with the physical
+            # per-height frames now in step_results — drop it from the file.
+            data_clean.pop("frame_totals", None)
+            # frame_count is consumed above (into step_results), so it's
+            # redundant in the file too — drop it.
+            data_clean.pop("frame_count", None)
+            # object_totals is redundant with step_results (which carries the
+            # per-item counts) — drop it too.
+            data_clean.pop("object_totals", None)
+            with open(data_file, "w") as f:
+                json.dump(data_clean, f, indent=4)
+            print(f"🧹 step_results reduced to crossbars + per-height frames: {step_results}")
+    except Exception as clean_err:
+        print(f"⚠️  Could not rebuild step_results: {clean_err}")
 
     # Upload Step18's per-category highlight SVGs. This has to sit here — after
     # Step18 writes them, and before the cleanup below wipes files/. The URLs

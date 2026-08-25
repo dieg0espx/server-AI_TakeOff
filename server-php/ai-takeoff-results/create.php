@@ -122,14 +122,18 @@ function insertResults($conn, $data) {
         $wood10ft = $cbCount($cbWood, 'wood_10ft') ?? ($stepResults['wood_10ft'] ?? null);
         $wood12ft = $cbCount($cbWood, 'wood_12ft') ?? ($stepResults['wood_12ft'] ?? null);
 
-        // Crossbar totals. The pipeline sends per-color keys (crossbar_Green/
-        // Red/Yellow); the DB columns are crossbar_5/6/7. Map Green->5, Red->6,
-        // Yellow->7 so nothing is lost, keeping legacy crossbar_5/6/7 as fallback.
+        // Crossbar counts live in step_results as per-color keys (crossbar_
+        // Green/Red/Yellow); the DB columns are crossbar_5/6/7. Map Green->5,
+        // Red->6, Yellow->7. Fall back to the legacy crossbar_totals block /
+        // crossbar_5/6/7 keys for old payloads.
+        $stepResults = $data['step_results'] ?? [];
         $crossbarTotals = $data['crossbar_totals'] ?? [];
-        $crossbar5 = $crossbarTotals['crossbar_Green']  ?? $crossbarTotals['crossbar_5'] ?? null;
-        $crossbar6 = $crossbarTotals['crossbar_Red']    ?? $crossbarTotals['crossbar_6'] ?? null;
-        $crossbar7 = $crossbarTotals['crossbar_Yellow'] ?? $crossbarTotals['crossbar_7'] ?? null;
-        $crossbarTotal = $crossbarTotals['total'] ?? null;
+        $cbSrc = $stepResults + $crossbarTotals;  // step_results wins
+        $crossbar5 = $cbSrc['crossbar_Green']  ?? $cbSrc['crossbar_5'] ?? null;
+        $crossbar6 = $cbSrc['crossbar_Red']    ?? $cbSrc['crossbar_6'] ?? null;
+        $crossbar7 = $cbSrc['crossbar_Yellow'] ?? $cbSrc['crossbar_7'] ?? null;
+        $crossbarTotal = $crossbarTotals['total']
+            ?? (($crossbar5 ?? 0) + ($crossbar6 ?? 0) + ($crossbar7 ?? 0));
 
         // Frame totals. Pipeline sends frame_2/frame_4; DB columns are
         // frame_5/frame_6/frame_null. Map frame_2->5, frame_4->6, keeping the
@@ -378,12 +382,12 @@ try {
         exit();
     }
 
-    // Counts come from color_breakdown / object_totals (current pipeline) with
-    // step_results as a legacy fallback. Require at least one of them so we
-    // don't insert an empty record, but no longer mandate step_results.
-    $hasCounts = (isset($inputData['color_breakdown']) && is_array($inputData['color_breakdown']))
-        || (isset($inputData['object_totals']) && is_array($inputData['object_totals']))
-        || (isset($inputData['step_results']) && is_array($inputData['step_results']));
+    // Counts come from step_results (crossbars, per-height frames, per-size
+    // beams, shores); color_breakdown / object_totals are accepted as legacy
+    // sources. Require at least one so we don't insert an empty record.
+    $hasCounts = (isset($inputData['step_results']) && is_array($inputData['step_results']))
+        || (isset($inputData['color_breakdown']) && is_array($inputData['color_breakdown']))
+        || (isset($inputData['object_totals']) && is_array($inputData['object_totals']));
     if (!$hasCounts) {
         http_response_code(400);
         echo json_encode(['success' => false, 'error' => 'color_breakdown, object_totals, or step_results is required']);
