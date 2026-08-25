@@ -61,42 +61,43 @@ function insertResults($conn, $data) {
     try {
         $trackingUrl = generateTrackingUrl($conn);
 
-        // Count sources, in priority order:
-        //   1. color_breakdown / object_totals — the current pipeline's clean
-        //      per-color and per-category summaries.
-        //   2. step_results — legacy raw counts, kept as a fallback so old
-        //      payloads (and any that still send it) still populate columns.
-        $stepResults = $data['step_results'] ?? [];
+        // The pipeline now sends ALL counts in one block: step_results. It
+        // holds crossbars (crossbar_Green/Red/Yellow), per-height frames
+        // (frame_4/5/6), per-size alum beams (alumBeam<size>), shores
+        // (x_shores/square_shores), and — for older payloads — wood_<N>ft.
+        // color_breakdown / crossbar_totals / frame_totals are read only as
+        // legacy fallbacks for pre-consolidation payloads.
+        $stepResults    = $data['step_results'] ?? [];
         $colorBreakdown = $data['color_breakdown'] ?? [];
         $cbShapes = $colorBreakdown['color_shapes'] ?? [];
         $cbBeams  = $colorBreakdown['alum_beams'] ?? [];
         $cbWood   = $colorBreakdown['wood'] ?? [];
 
-        // Pull a per-color count out of color_breakdown (each entry is
-        // {hex, count} / {hex,color,count}); null if that group is absent.
+        // Legacy color_breakdown entry -> count ({hex,count}); null if absent.
         $cbCount = function($group, $key) {
             if (isset($group[$key]) && is_array($group[$key]) && isset($group[$key]['count'])) {
                 return (int)$group[$key]['count'];
             }
             return null;
         };
-        // Prefer breakdown value; fall back to a step_results key; else default.
-        $pick = function($primary, $fallback, $default = null) {
-            if ($primary !== null) return $primary;
-            if ($fallback !== null) return $fallback;
-            return $default;
+        // Read an int count from step_results (primary) with a legacy fallback.
+        $srInt = function($key) use ($stepResults) {
+            return isset($stepResults[$key]) && is_numeric($stepResults[$key])
+                ? (int)$stepResults[$key] : null;
         };
 
-        $blueXShapes      = $pick($cbCount($cbShapes, 'blue'),   $stepResults['step5_blue_X_shapes'] ?? null, 0);
-        $redSquares       = $pick($cbCount($cbShapes, 'red'),    $stepResults['step6_red_squares'] ?? null, 0);
-        $pinkShapes       = $pick($cbCount($cbShapes, 'pink'),   $stepResults['step7_pink_shapes'] ?? null, 0);
-        $greenRectangles  = $pick($cbCount($cbShapes, 'green'),  $stepResults['step8_green_rectangles'] ?? null, 0);
-        $orangeRectangles = $pick($cbCount($cbShapes, 'orange'), $stepResults['step9_orange_rectangles'] ?? null, 0);
+        // Shapes. step_results: x_shores (blue X) + square_shores (red squares).
+        // pink/green/orange are no longer detected separately -> 0 unless a
+        // legacy color_breakdown carries them.
+        $blueXShapes      = $srInt('x_shores')      ?? $cbCount($cbShapes, 'blue')   ?? 0;
+        $redSquares       = $srInt('square_shores') ?? $cbCount($cbShapes, 'red')    ?? 0;
+        $pinkShapes       = $srInt('pink_shapes')   ?? $cbCount($cbShapes, 'pink')   ?? 0;
+        $greenRectangles  = $srInt('green_rectangles') ?? $cbCount($cbShapes, 'green')  ?? 0;
+        $orangeRectangles = $srInt('orange_rectangles') ?? $cbCount($cbShapes, 'orange') ?? 0;
 
-        // alumBeam counts: prefer color_breakdown.alum_beams[<size>].count,
-        // fall back to step_results[<size>].
-        $beam = function($size) use ($cbCount, $cbBeams, $stepResults) {
-            return $cbCount($cbBeams, $size) ?? ($stepResults[$size] ?? null);
+        // alumBeam per-size counts from step_results (fallback color_breakdown).
+        $beam = function($size) use ($srInt, $cbCount, $cbBeams) {
+            return $srInt($size) ?? $cbCount($cbBeams, $size);
         };
         $alumBeam4  = $beam('alumBeam4');
         $alumBeam5  = $beam('alumBeam5');
@@ -106,8 +107,8 @@ function insertResults($conn, $data) {
         $alumBeam9  = $beam('alumBeam9');
         $alumBeam10 = $beam('alumBeam10');
         // 10'6" is written "alumBeam10_6" (current) or "alumBeam106" (legacy).
-        $alumBeam106 = $cbCount($cbBeams, 'alumBeam10_6') ?? $cbCount($cbBeams, 'alumBeam106')
-                       ?? $stepResults['alumBeam10_6'] ?? $stepResults['alumBeam106'] ?? null;
+        $alumBeam106 = $srInt('alumBeam106') ?? $srInt('alumBeam10_6')
+                       ?? $cbCount($cbBeams, 'alumBeam10_6') ?? $cbCount($cbBeams, 'alumBeam106');
         $alumBeam11 = $beam('alumBeam11');
         $alumBeam12 = $beam('alumBeam12');
         $alumBeam13 = $beam('alumBeam13');
@@ -116,33 +117,30 @@ function insertResults($conn, $data) {
         $alumBeam18 = $beam('alumBeam18');
         $alumBeam20 = $beam('alumBeam20');
 
-        // 4x6 wood-beam counts: prefer color_breakdown.wood[wood_Nft].count.
-        $wood8ft  = $cbCount($cbWood, 'wood_8ft')  ?? ($stepResults['wood_8ft'] ?? null);
-        $wood9ft  = $cbCount($cbWood, 'wood_9ft')  ?? ($stepResults['wood_9ft'] ?? null);
-        $wood10ft = $cbCount($cbWood, 'wood_10ft') ?? ($stepResults['wood_10ft'] ?? null);
-        $wood12ft = $cbCount($cbWood, 'wood_12ft') ?? ($stepResults['wood_12ft'] ?? null);
+        // 4x6 wood-beam counts (legacy: step_results / color_breakdown.wood).
+        $wood8ft  = $srInt('wood_8ft')  ?? $cbCount($cbWood, 'wood_8ft');
+        $wood9ft  = $srInt('wood_9ft')  ?? $cbCount($cbWood, 'wood_9ft');
+        $wood10ft = $srInt('wood_10ft') ?? $cbCount($cbWood, 'wood_10ft');
+        $wood12ft = $srInt('wood_12ft') ?? $cbCount($cbWood, 'wood_12ft');
 
-        // Crossbar counts live in step_results as per-color keys (crossbar_
-        // Green/Red/Yellow); the DB columns are crossbar_5/6/7. Map Green->5,
-        // Red->6, Yellow->7. Fall back to the legacy crossbar_totals block /
-        // crossbar_5/6/7 keys for old payloads.
-        $stepResults = $data['step_results'] ?? [];
+        // Crossbars: step_results per-color keys crossbar_Green/Red/Yellow ->
+        // DB crossbar_5/6/7. Legacy crossbar_totals as fallback.
         $crossbarTotals = $data['crossbar_totals'] ?? [];
-        $cbSrc = $stepResults + $crossbarTotals;  // step_results wins
-        $crossbar5 = $cbSrc['crossbar_Green']  ?? $cbSrc['crossbar_5'] ?? null;
-        $crossbar6 = $cbSrc['crossbar_Red']    ?? $cbSrc['crossbar_6'] ?? null;
-        $crossbar7 = $cbSrc['crossbar_Yellow'] ?? $cbSrc['crossbar_7'] ?? null;
+        $crossbar5 = $srInt('crossbar_Green')  ?? ($crossbarTotals['crossbar_Green']  ?? $crossbarTotals['crossbar_5'] ?? null);
+        $crossbar6 = $srInt('crossbar_Red')    ?? ($crossbarTotals['crossbar_Red']    ?? $crossbarTotals['crossbar_6'] ?? null);
+        $crossbar7 = $srInt('crossbar_Yellow') ?? ($crossbarTotals['crossbar_Yellow'] ?? $crossbarTotals['crossbar_7'] ?? null);
         $crossbarTotal = $crossbarTotals['total']
             ?? (($crossbar5 ?? 0) + ($crossbar6 ?? 0) + ($crossbar7 ?? 0));
 
-        // Frame totals. Pipeline sends frame_2/frame_4; DB columns are
-        // frame_5/frame_6/frame_null. Map frame_2->5, frame_4->6, keeping the
-        // legacy frame_5/6/null keys as fallback.
+        // Frames: step_results per-height frame_4/5/6 (physical count from
+        // frames.svg). DB frame columns are frame_5/frame_6/frame_null ->
+        // frame_5->frame_5, frame_6->frame_6, frame_4->frame_null. Legacy
+        // frame_totals (frame_2->5, frame_4->6) as fallback.
         $frameTotals = $data['frame_totals'] ?? [];
-        $frame5 = $frameTotals['frame_2'] ?? $frameTotals['frame_5'] ?? null;
-        $frame6 = $frameTotals['frame_4'] ?? $frameTotals['frame_6'] ?? null;
-        $frameNull = $frameTotals['frame_null'] ?? null;
-        $frameTotal = $frameTotals['total'] ?? null;
+        $frame5 = $srInt('frame_5') ?? ($frameTotals['frame_2'] ?? $frameTotals['frame_5'] ?? null);
+        $frame6 = $srInt('frame_6') ?? ($frameTotals['frame_4'] ?? $frameTotals['frame_6'] ?? null);
+        $frameNull = $srInt('frame_4') ?? ($frameTotals['frame_null'] ?? null);
+        $frameTotal = (($frame5 ?? 0) + ($frame6 ?? 0) + ($frameNull ?? 0)) ?: ($frameTotals['total'] ?? null);
 
         $text = $data['text'] ?? '';
         $company = $data['company'] ?? 'Unknown Company';
@@ -177,55 +175,49 @@ function insertResults($conn, $data) {
         $processingStartTime = $data['processing_start_time'] ?? null;
         $processingEndTime = $data['processing_end_time'] ?? null;
 
-        // Grouped JSON columns: each element category as one {name: count} map,
-        // built from the same resolved values used for the discrete columns.
-        // Null-count entries are dropped so a category only lists what it has.
-        $jsonOrNull = function($map) {
-            $clean = array_filter($map, function($v) { return $v !== null; });
-            return empty($clean) ? null
-                : json_encode($clean, JSON_UNESCAPED_SLASHES);
+        // Grouped JSON columns: each element category as one {name: count} map.
+        // Every listed key is emitted with null coerced to 0, so a category
+        // always carries its full set (e.g. all 14 alumBeam sizes, zeros
+        // included) exactly like {"alumBeam5":19,"alumBeam6":0,...}.
+        $jsonZeroFill = function($map) {
+            $filled = [];
+            foreach ($map as $k => $v) {
+                $filled[$k] = ($v === null) ? 0 : (int)$v;
+            }
+            return json_encode($filled, JSON_UNESCAPED_SLASHES);
         };
-        $alumBeamsJson = $jsonOrNull([
-            'alumBeam4' => $alumBeam4, 'alumBeam5' => $alumBeam5,
-            'alumBeam6' => $alumBeam6, 'alumBeam7' => $alumBeam7,
-            'alumBeam8' => $alumBeam8, 'alumBeam9' => $alumBeam9,
-            'alumBeam10' => $alumBeam10, 'alumBeam106' => $alumBeam106,
-            'alumBeam11' => $alumBeam11, 'alumBeam12' => $alumBeam12,
-            'alumBeam13' => $alumBeam13, 'alumBeam14' => $alumBeam14,
-            'alumBeam16' => $alumBeam16, 'alumBeam18' => $alumBeam18,
-            'alumBeam20' => $alumBeam20,
+        $alumBeamsJson = $jsonZeroFill([
+            'alumBeam5' => $alumBeam5, 'alumBeam6' => $alumBeam6,
+            'alumBeam7' => $alumBeam7, 'alumBeam8' => $alumBeam8,
+            'alumBeam9' => $alumBeam9, 'alumBeam10' => $alumBeam10,
+            'alumBeam106' => $alumBeam106, 'alumBeam11' => $alumBeam11,
+            'alumBeam12' => $alumBeam12, 'alumBeam13' => $alumBeam13,
+            'alumBeam14' => $alumBeam14, 'alumBeam16' => $alumBeam16,
+            'alumBeam18' => $alumBeam18, 'alumBeam20' => $alumBeam20,
         ]);
-        $shapesJson = $jsonOrNull([
+        $shapesJson = $jsonZeroFill([
             'blue_x_shapes' => $blueXShapes, 'red_squares' => $redSquares,
             'pink_shapes' => $pinkShapes, 'green_rectangles' => $greenRectangles,
             'orange_rectangles' => $orangeRectangles,
         ]);
-        $crossbarsJson = $jsonOrNull([
+        $crossbarsJson = $jsonZeroFill([
             'crossbar_5' => $crossbar5, 'crossbar_6' => $crossbar6,
             'crossbar_7' => $crossbar7, 'total' => $crossbarTotal,
         ]);
-        $framesJson = $jsonOrNull([
+        $framesJson = $jsonZeroFill([
             'frame_5' => $frame5, 'frame_6' => $frame6,
             'frame_null' => $frameNull, 'total' => $frameTotal,
         ]);
-        $woodJson = $jsonOrNull([
+        $woodJson = $jsonZeroFill([
             'wood_8ft' => $wood8ft, 'wood_9ft' => $wood9ft,
             'wood_10ft' => $wood10ft, 'wood_12ft' => $wood12ft,
         ]);
 
         $sql = "INSERT INTO ai_takeoff_results (tracking_url, company, jobsite,
-blue_x_shapes, red_squares, pink_shapes, green_rectangles, orange_rectangles,
-alumBeam4, alumBeam5, alumBeam6, alumBeam7, alumBeam8, alumBeam9, alumBeam10, alumBeam106, alumBeam11, alumBeam12, alumBeam13, alumBeam14, alumBeam16, alumBeam18, alumBeam20,
-wood_8ft, wood_9ft, wood_10ft, wood_12ft,
-crossbar_5, crossbar_6, crossbar_7, crossbar_total, frame_5, frame_6, frame_null, frame_total,
 identified_elements, svg_file, svg_files,
 alumBeams, shapes, crossbars, frames, wood,
 text, status, logs, processing_duration, processing_start_time, processing_end_time)
-VALUES (:tracking_url, :company, :jobsite, :blue_x_shapes, :red_squares,
-:pink_shapes, :green_rectangles, :orange_rectangles,
-:alumBeam4, :alumBeam5, :alumBeam6, :alumBeam7, :alumBeam8, :alumBeam9, :alumBeam10, :alumBeam106, :alumBeam11, :alumBeam12, :alumBeam13, :alumBeam14, :alumBeam16, :alumBeam18, :alumBeam20,
-:wood_8ft, :wood_9ft, :wood_10ft, :wood_12ft,
-:crossbar_5, :crossbar_6, :crossbar_7, :crossbar_total, :frame_5, :frame_6, :frame_null, :frame_total,
+VALUES (:tracking_url, :company, :jobsite,
 :identified_elements, :svg_file, :svg_files,
 :alumBeams, :shapes, :crossbars, :frames, :wood,
 :text, :status, :logs, :processing_duration, :processing_start_time, :processing_end_time)";
@@ -234,44 +226,6 @@ VALUES (:tracking_url, :company, :jobsite, :blue_x_shapes, :red_squares,
         $stmt->bindValue(':tracking_url', $trackingUrl, PDO::PARAM_STR);
         $stmt->bindValue(':company', $company, PDO::PARAM_STR);
         $stmt->bindValue(':jobsite', $jobsite, PDO::PARAM_STR);
-        $stmt->bindValue(':blue_x_shapes', $blueXShapes, PDO::PARAM_INT);
-        $stmt->bindValue(':red_squares', $redSquares, PDO::PARAM_INT);
-        $stmt->bindValue(':pink_shapes', $pinkShapes, PDO::PARAM_INT);
-        $stmt->bindValue(':green_rectangles', $greenRectangles, PDO::PARAM_INT);
-        $stmt->bindValue(':orange_rectangles', $orangeRectangles, PDO::PARAM_INT);
-
-        // Bind all alumBeam parameters
-        $stmt->bindValue(':alumBeam4', $alumBeam4, PDO::PARAM_INT);
-        $stmt->bindValue(':alumBeam5', $alumBeam5, PDO::PARAM_INT);
-        $stmt->bindValue(':alumBeam6', $alumBeam6, PDO::PARAM_INT);
-        $stmt->bindValue(':alumBeam7', $alumBeam7, PDO::PARAM_INT);
-        $stmt->bindValue(':alumBeam8', $alumBeam8, PDO::PARAM_INT);
-        $stmt->bindValue(':alumBeam9', $alumBeam9, PDO::PARAM_INT);
-        $stmt->bindValue(':alumBeam10', $alumBeam10, PDO::PARAM_INT);
-        $stmt->bindValue(':alumBeam106', $alumBeam106, PDO::PARAM_INT);
-        $stmt->bindValue(':alumBeam11', $alumBeam11, PDO::PARAM_INT);
-        $stmt->bindValue(':alumBeam12', $alumBeam12, PDO::PARAM_INT);
-        $stmt->bindValue(':alumBeam13', $alumBeam13, PDO::PARAM_INT);
-        $stmt->bindValue(':alumBeam14', $alumBeam14, PDO::PARAM_INT);
-        $stmt->bindValue(':alumBeam16', $alumBeam16, PDO::PARAM_INT);
-        $stmt->bindValue(':alumBeam18', $alumBeam18, PDO::PARAM_INT);
-        $stmt->bindValue(':alumBeam20', $alumBeam20, PDO::PARAM_INT);
-
-        // Bind 4x6 wood-beam parameters
-        $stmt->bindValue(':wood_8ft', $wood8ft, PDO::PARAM_INT);
-        $stmt->bindValue(':wood_9ft', $wood9ft, PDO::PARAM_INT);
-        $stmt->bindValue(':wood_10ft', $wood10ft, PDO::PARAM_INT);
-        $stmt->bindValue(':wood_12ft', $wood12ft, PDO::PARAM_INT);
-
-        // Bind crossbar and frame parameters
-        $stmt->bindValue(':crossbar_5', $crossbar5, PDO::PARAM_INT);
-        $stmt->bindValue(':crossbar_6', $crossbar6, PDO::PARAM_INT);
-        $stmt->bindValue(':crossbar_7', $crossbar7, PDO::PARAM_INT);
-        $stmt->bindValue(':crossbar_total', $crossbarTotal, PDO::PARAM_INT);
-        $stmt->bindValue(':frame_5', $frame5, PDO::PARAM_INT);
-        $stmt->bindValue(':frame_6', $frame6, PDO::PARAM_INT);
-        $stmt->bindValue(':frame_null', $frameNull, PDO::PARAM_INT);
-        $stmt->bindValue(':frame_total', $frameTotal, PDO::PARAM_INT);
 
         // JSON string, or SQL NULL when no map was supplied.
         if ($identifiedElements === null) {
@@ -382,12 +336,12 @@ try {
         exit();
     }
 
-    // Counts come from step_results (crossbars, per-height frames, per-size
-    // beams, shores); color_breakdown / object_totals are accepted as legacy
-    // sources. Require at least one so we don't insert an empty record.
-    $hasCounts = (isset($inputData['step_results']) && is_array($inputData['step_results']))
-        || (isset($inputData['color_breakdown']) && is_array($inputData['color_breakdown']))
-        || (isset($inputData['object_totals']) && is_array($inputData['object_totals']));
+    // Counts come from color_breakdown / object_totals (current pipeline) with
+    // step_results as a legacy fallback. Require at least one of them so we
+    // don't insert an empty record, but no longer mandate step_results.
+    $hasCounts = (isset($inputData['color_breakdown']) && is_array($inputData['color_breakdown']))
+        || (isset($inputData['object_totals']) && is_array($inputData['object_totals']))
+        || (isset($inputData['step_results']) && is_array($inputData['step_results']));
     if (!$hasCounts) {
         http_response_code(400);
         echo json_encode(['success' => false, 'error' => 'color_breakdown, object_totals, or step_results is required']);
