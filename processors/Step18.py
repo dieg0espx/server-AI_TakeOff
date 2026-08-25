@@ -290,6 +290,28 @@ def _merged_piggyback_stack(box_a, box_b):
     return stack_lines, positions
 
 
+def _write_frame_count(base_dir, height_counts):
+    """Write the physical frame count derived from the frames.svg annotations
+    to data.json as `frame_count`: a total plus a per-height breakdown.
+    data.json lives one level above base_dir (files/ -> ./data.json)."""
+    import json
+    data_path = os.path.join(os.path.dirname(base_dir.rstrip("/")) or ".",
+                             "data.json")
+    by_height = {str(h): height_counts[h] for h in sorted(height_counts)}
+    frame_count = {"total": sum(height_counts.values()), "by_height": by_height}
+    try:
+        data = {}
+        if os.path.exists(data_path):
+            with open(data_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        data["frame_count"] = frame_count
+        with open(data_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4)
+        print(f"✅ Step18 wrote frame_count to {data_path}: {frame_count}")
+    except Exception as e:
+        print(f"⚠️  Step18: could not write frame_count to {data_path}: {e}")
+
+
 def _overlay_rects(base_svg, out_path, box_layers, label, layer_boxes=None):
     """Overlay colored bounding rectangles onto the gray base. box_layers is
     a list of (boxes, color, prefix). One <rect> per box, drawn before
@@ -297,7 +319,16 @@ def _overlay_rects(base_svg, out_path, box_layers, label, layer_boxes=None):
     LAYER count in each box's top-left corner."""
     els = []
     total = 0
+    height_counts = {}   # physical frame count per height (ft) across the sheet
     layer_boxes = layer_boxes or []
+
+    def _tally(lines, times=1):
+        # Each "<h>H x 4W" line is one physical frame; add `times` of each.
+        for ln in lines:
+            m = re.match(r"\s*(\d+)H", ln)
+            if m:
+                h = int(m.group(1))
+                height_counts[h] = height_counts.get(h, 0) + times
 
     # Flatten every color group into one indexed list so piggybacks can be
     # detected across colors (green frame stacked on an orange one, etc.).
@@ -328,6 +359,7 @@ def _overlay_rects(base_svg, out_path, box_layers, label, layer_boxes=None):
         match = _match_layer_box(x, y, w, h, layer_boxes)
         if match is not None:
             lines = _layer_label(match)
+            _tally(lines)
             els.append(_corner_text(f"layers_{prefix}_{i}", x + 3, y + 3,
                                     color, lines))
         total += 1
@@ -354,6 +386,7 @@ def _overlay_rects(base_svg, out_path, box_layers, label, layer_boxes=None):
         if stack_lines:
             # Repeat the per-side stack at each position along the merged bay:
             # top->bottom for a tall (stacked) pair, left->right for a wide one.
+            _tally(stack_lines, times=positions)
             els.append(_piggyback_label(
                 f"piggyback_layers_{pk}", ux, uy, uw, uh, FRAME_COLOR,
                 stack_lines, positions))
@@ -369,7 +402,7 @@ def _overlay_rects(base_svg, out_path, box_layers, label, layer_boxes=None):
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(svg)
     print(f"✅ Step18 wrote {out_path} ({label}: {total} element(s) highlighted)")
-    return total
+    return total, height_counts
 
 
 def _build_wood_svg(base_svg, groups_dir, out_path):
@@ -475,8 +508,12 @@ def run_step18():
             if boxes:
                 frame_layers.append((boxes, FRAME_COLOR, fname[:-5]))
         layer_boxes = _load_layer_boxes(os.path.join(td, "frame_layers.json"))
-        _overlay_rects(base_svg, os.path.join(base_dir, "frames.svg"),
-                       frame_layers, "frames", layer_boxes=layer_boxes)
+        _, frame_height_counts = _overlay_rects(
+            base_svg, os.path.join(base_dir, "frames.svg"),
+            frame_layers, "frames", layer_boxes=layer_boxes)
+        # Persist the true PHYSICAL frame count (from the frames.svg labels:
+        # each layer x2, piggybacks share a side) + a per-height breakdown.
+        _write_frame_count(base_dir, frame_height_counts)
 
         # Wood beams: overlay synthesized lines from the per-group SVGs.
         _build_wood_svg(base_svg, os.path.join(base_dir, "groups"),
