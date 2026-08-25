@@ -172,17 +172,15 @@ def _match_layer_box(x, y, w, h, layer_boxes):
 
 
 def _layer_label(box):
-    """Build the corner label lines for a matched layer box. One layer ->
-    ["default"]; multiple layers -> one "<height>H x 4W" line per layer,
-    STACKED vertically (e.g. a 5'+5' stack -> ["5H x 4W", "5H x 4W"])."""
-    layers = int(box.get("layers", 1))
-    if layers <= 1:
-        return ["default"]
+    """Build the corner label lines for a matched layer box: one "<height>H x
+    4W" line per stacked frame layer, STACKED vertically. A 5'+5' stack (or a
+    5'+5' drawing default) -> ["5H x 4W", "5H x 4W"]; a single 6' default ->
+    ["6H x 4W"]."""
     heights = box.get("heights") or []
     tokens = [f"{int(h)}H x 4W" for h in heights]
     if not tokens:
-        # No per-layer heights recorded; still show one line per layer.
-        tokens = ["?H x 4W"] * layers
+        # No heights recorded; fall back to the layer count.
+        tokens = ["?H x 4W"] * max(1, int(box.get("layers", 1)))
     return tokens
 
 
