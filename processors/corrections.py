@@ -206,6 +206,50 @@ _EDITORS = {
     'shores': _edit_shore,
 }
 
+# Gray tone the pipeline uses for "not this element" — matches Step2/Step11.
+_STEP11_GRAY = "#4e4e4e"
+
+
+def _edit_step11(svg, el_id, action, new_type, category):
+    """Edit the element in the MAIN drawing (step11.svg). Unlike the per-category
+    layers, step11 draws each element as a single tag with its NATIVE id
+    (x_shape_N, red_square_N, <color>_container_N, pathNNNN) and a stroke hex —
+    so we recolor by id here. Crossbars aren't drawn in step11, so they no-op.
+
+      remove     -> recolor stroke (and any non-none fill) to the drawing gray
+      reclassify -> recolor to the new type's color (beams per size; shores
+                    x/square; frames stay green)
+    """
+    if category == 'crossbars':
+        return svg, False   # crossbars live only on crossbars.svg
+    pat = re.compile(rf'(<(?:rect|path)\b[^>]*\bid="{re.escape(el_id)}"[^>]*?/>)', re.DOTALL)
+    m = pat.search(svg)
+    if not m:
+        return svg, False
+    tag = m.group(1)
+
+    if action == 'remove':
+        target = _STEP11_GRAY
+    else:
+        # reclassify -> the new type's color
+        if category == 'alumBeams':
+            key = 'alumBeam106' if new_type == 'alumBeam10_6' else new_type
+            target = ALUM_BEAM_COLORS.get(new_type, ALUM_BEAM_COLORS.get(key, ALUM_BEAM_FALLBACK))
+        elif category == 'shores':
+            target = SHORE_COLOR_X if new_type == 'shore_x' else SHORE_COLOR_SQUARE
+        else:
+            target = None   # frames render one green; nothing to recolor
+    if target is None:
+        return svg, True    # counted as handled (no visual change needed)
+
+    new_tag = re.sub(r'stroke:#[0-9a-fA-F]{6}',
+                     lambda _mm: f'stroke:{target}', tag)
+    # Also gray a painted fill on removal so a filled shape doesn't stay colored.
+    if action == 'remove':
+        new_tag = re.sub(r'fill:#(?!ffffff)(?!none)[0-9a-fA-F]{6}',
+                         f'fill:{_STEP11_GRAY}', new_tag)
+    return svg[:m.start()] + new_tag + svg[m.end():], (new_tag != tag)
+
 
 # ─────────────────────────────── orchestration ───────────────────────────────
 
@@ -292,6 +336,31 @@ def apply_corrections(tracking_url, corrections):
             with open(local, 'w', encoding='utf-8') as f:
                 f.write(svg)
             edited_paths.append((layer, local, layer))
+
+    # ── 3b. Also edit the MAIN drawing (step11.svg) so corrections show on the
+    #        default view, not just the category layer. Reloading the Main view
+    #        would otherwise bring a removed false-positive back. ──
+    step11_url = svg_files.get('step11')
+    if step11_url:
+        try:
+            s11 = _fetch_svg(step11_url)
+            s11_changed = False
+            for c in corrections:
+                el_id = c.get('id', '')
+                entry = elements.get(el_id)
+                if entry is None:
+                    continue
+                category = _category_of(el_id, entry)
+                s11, ch = _edit_step11(s11, el_id, c.get('action'),
+                                       c.get('new_type'), category)
+                s11_changed = s11_changed or ch
+            if s11_changed:
+                local = os.path.join(tmp_dir, 'step11_corrected.svg')
+                with open(local, 'w', encoding='utf-8') as f:
+                    f.write(s11)
+                edited_paths.append(('step11', local, 'step11'))
+        except Exception as e:
+            print(f"⚠️  corrections: could not edit step11.svg: {e}")
 
     if not edited_paths:
         return {'success': False, 'error': 'no SVG edits took effect',
