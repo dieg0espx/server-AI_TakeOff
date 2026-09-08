@@ -250,6 +250,49 @@ try {
             continue;
         }
 
+        // ── ADD_FRAME: a manually-built frame (box + stack + crossbars). The
+        //    Python side enriched it with the computed physical-frame breakdown
+        //    (_frame_count/_heights) and crossbar info (_crossbar_count/_color).
+        //    Store the enriched frame entry and delta frame + crossbar counts. ──
+        if ($action === 'add_frame') {
+            $newType = $c['new_type'] ?? 'greenFrame';
+            $heights = (isset($c['_heights']) && is_array($c['_heights'])) ? $c['_heights'] : [];
+            $frameCount = (int)($c['_frame_count'] ?? count($heights));
+            if ($id === '' || $frameCount <= 0) {
+                $skipped[] = ['id' => $id, 'reason' => 'add_frame needs id + frames'];
+                continue;
+            }
+            if (isset($elements[$id])) {
+                $skipped[] = ['id' => $id, 'reason' => 'already assigned'];
+                continue;
+            }
+            // Frame counts: split heights into frame_5/6/null.
+            foreach ($heights as $hh) {
+                $hk = ((int)$hh === 5) ? 'frame_5' : (((int)$hh === 6) ? 'frame_6' : 'frame_null');
+                $frames[$hk] = ($frames[$hk] ?? 0) + 1;
+                $frames['total'] = ($frames['total'] ?? 0) + 1;
+            }
+            // Crossbar counts: map the chosen crossbar color -> bucket, +count.
+            $cbColor = $c['_crossbar_color'] ?? 'Yellow';
+            $cbCount = (int)($c['_crossbar_count'] ?? 0);
+            $cbKey = ($cbColor === 'Green') ? 'crossbar_5'
+                : (($cbColor === 'Red') ? 'crossbar_6' : 'crossbar_7'); // Yellow/Blue/other -> 7
+            if ($cbCount > 0) {
+                $crossbars[$cbKey] = ($crossbars[$cbKey] ?? 0) + $cbCount;
+                $crossbars['total'] = ($crossbars['total'] ?? 0) + $cbCount;
+            }
+            // Enriched frame entry (mirrors auto-detected frames).
+            $sizeStr = implode(' + ', array_map(function($h){ return ((int)$h)."H x 4W"; },
+                array_values(array_unique($heights))));
+            $elements[$id] = [
+                'category' => 'frames', 'type' => $newType,
+                'frame_count' => $frameCount, 'heights' => array_map('intval', $heights),
+                'frame_size' => $sizeStr,
+            ];
+            $applied[] = ['id' => $id, 'action' => 'add_frame', 'frame_count' => $frameCount];
+            continue;
+        }
+
         if ($id === '' || !isset($elements[$id])) {
             $skipped[] = ['id' => $id, 'reason' => 'not found'];
             continue;

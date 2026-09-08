@@ -54,6 +54,15 @@ except Exception:  # pragma: no cover
     from Step17 import ALUM_BEAM_COLORS as _S17_COLOR_TO_SIZE
 STEP11_BEAM_COLORS = {size: hexcol for hexcol, (size, *_ ) in _S17_COLOR_TO_SIZE.items()}
 
+# Reuse the exact frame-box/label/crossbar-X drawing helpers so a MANUALLY added
+# frame renders identically to an auto-detected one.
+try:
+    from processors.Step13 import _tri_color_diagonal, color_for_frame
+    from processors.Step18 import _corner_text
+except Exception:  # pragma: no cover
+    from Step13 import _tri_color_diagonal, color_for_frame
+    from Step18 import _corner_text
+
 CORRECT_PHP_URL = os.environ.get(
     'CORRECT_API_URL',
     'https://ttfconstruction.com/ai-takeoff-results/correct.php')
@@ -284,6 +293,86 @@ def _edit_step11(svg, el_id, action, new_type, category):
     return svg[:m.start()] + new_tag + svg[m.end():], (new_tag != tag)
 
 
+# Frame width label by type: green=4x5, orange=4x6, pink=4x4. Used in the
+# per-height stack labels ("<h>H x <W>W").
+_FRAME_WIDTH_BY_TYPE = {
+    'greenFrame': 4, 'orangeFrame': 4, 'pinkFrame': 4, 'yellowFrame': 4,
+}
+# Crossbar type name (as sent from the form) -> the span string color_for_frame
+# expects. The form sends crossbar_Green/Red/Yellow/Blue; map back to a span so
+# color_for_frame() picks the same hex the pipeline would.
+_CROSSBAR_TYPE_TO_SPAN = {
+    'crossbar_Green': "5'", 'crossbar_Red': "6'",
+    'crossbar_Yellow': "7'", 'crossbar_Blue': "4'",
+}
+
+
+def _synthesize_frame_elements(el_id, bbox, per_side, sides, crossbar_type):
+    """Build the SVG element strings for a MANUALLY added frame at `bbox`,
+    matching how Step13/Step18 render an auto-detected frame:
+      - a green highlight rect carrying data-el-id=<el_id> (so it's selectable),
+      - one "<h>H x 4W" corner label per physical frame (heights duplicated
+        across `sides`), and
+      - one tri-colored crossbar X per stack LAYER, per half (left/right).
+
+    Returns (elements: list[str], frame_count, heights, crossbar_count,
+    crossbar_color_name). `per_side` is the per-side height stack (e.g. [5, 5]);
+    the full frame lists each height `sides` times.
+    """
+    x, y, w, h = bbox
+    INSET, STROKE, HALF_GAP, GAP = 3.0, 2.0, 2.0, 3.0
+
+    heights = [ht for ht in per_side for _ in range(sides)]
+    frame_count = len(heights)
+
+    # Crossbar color: derived from the form's crossbar_type (its span) against
+    # each layer's frame height. All layers here share the chosen crossbar type,
+    # so use it directly for the color + count.
+    span = _CROSSBAR_TYPE_TO_SPAN.get(crossbar_type, "7'")
+    # Color per layer by the layer's height + span (matches color_for_frame).
+    layer_colors = [color_for_frame(ht, span)[0] for ht in per_side] or ["#ffff00"]
+    color_name = crossbar_type.replace('crossbar_', '') if crossbar_type else 'Yellow'
+
+    els = []
+    # 1) The frame box (green), selectable via data-el-id.
+    els.append(
+        f'    <rect id="hl_addedFrames_{el_id}" data-el-id="{el_id}" '
+        f'x="{x}" y="{y}" width="{w}" height="{h}" '
+        f'style="fill:none;stroke:{FRAME_COLOR};stroke-width:3;stroke-opacity:1" />'
+    )
+    # 2) Corner stack labels — one "<h>H x 4W" per physical frame.
+    label_lines = [f"{int(ht)}H x 4W" for ht in heights]
+    els.append(_corner_text(f"layers_addedFrames_{el_id}", x + 3, y + h / 2.0,
+                            FRAME_COLOR, label_lines))
+    # 3) Crossbar X's — left half + right half, one full-height X per layer.
+    n_rows = max(1, len(per_side))
+    yt, yb = y + INSET, y + h - INSET
+    mid = x + w / 2.0
+    cells = [(x + INSET, mid - HALF_GAP / 2.0),
+             (mid + HALF_GAP / 2.0, x + w - INSET)]
+    base = f"crossbar_line_addedFrame_{el_id}"
+    for si, (cx0, cx1) in enumerate(cells):
+        for ci in range(n_rows):
+            color_hex = layer_colors[ci % len(layer_colors)]
+            off = ci * GAP
+            b = f"{base}_s{si + 1}_c{ci + 1}"
+            els += _tri_color_diagonal(f"{b}_d1", (cx0 + off, yt), (cx1 + off, yb), color_hex, STROKE)
+            els += _tri_color_diagonal(f"{b}_d2", (cx1 + off, yt), (cx0 + off, yb), color_hex, STROKE)
+
+    # Crossbar count: one crossbar per stack LAYER per side (== frame_count),
+    # matching how the pipeline tallies (one colored X-line per frame).
+    crossbar_count = frame_count
+    return els, frame_count, heights, crossbar_count, color_name
+
+
+def _inject_before_svg_close(svg, elements):
+    """Insert element strings just before </svg>."""
+    if not elements:
+        return svg, False
+    block = "\n" + "\n".join(elements) + "\n"
+    return svg.replace("</svg>", block + "</svg>", 1), True
+
+
 # ─────────────────────────────── orchestration ───────────────────────────────
 
 def apply_corrections(tracking_url, corrections):
@@ -321,8 +410,8 @@ def apply_corrections(tracking_url, corrections):
     for c in corrections:
         el_id = c.get('id', '')
         action = c.get('action')
-        if action == 'add':
-            continue  # handled in the step11 pass (3b)
+        if action in ('add', 'add_frame'):
+            continue  # handled in dedicated passes below
         entry = elements.get(el_id)
         if el_id == '' or entry is None:
             skipped.append({'id': el_id, 'reason': 'not found in identified_elements'})
@@ -334,7 +423,7 @@ def apply_corrections(tracking_url, corrections):
             continue
         by_layer.setdefault(layer, []).append(c)
 
-    has_add = any(c.get('action') == 'add' for c in corrections)
+    has_add = any(c.get('action') in ('add', 'add_frame') for c in corrections)
     if not by_layer and not has_add:
         return {'success': False, 'error': 'no applicable corrections', 'skipped': skipped}
 
@@ -410,6 +499,85 @@ def apply_corrections(tracking_url, corrections):
                 edited_paths.append(('step11', local, 'step11'))
         except Exception as e:
             print(f"⚠️  corrections: could not edit step11.svg: {e}")
+
+    # ── 3c. ADD_FRAME: synthesize a full frame (box + stack labels + crossbar
+    #        X's) at the clicked path's bbox, injected into step11 + frames +
+    #        crossbars. Enrich each correction with the computed frame_count/
+    #        heights/crossbar info so correct.php can update the index + counts. ──
+    frame_adds = [c for c in corrections if c.get('action') == 'add_frame']
+    if frame_adds:
+        # Cache each affected layer's SVG once, mutate, re-upload.
+        layer_svgs = {}     # layer -> current svg text
+        layer_touched = set()
+        # Prefer an already-edited step11 (from 3b) if present.
+        edited_step11 = next((p for (lyr, p, _l) in edited_paths if lyr == 'step11'), None)
+        def _get_layer(layer):
+            if layer in layer_svgs:
+                return layer_svgs[layer]
+            if layer == 'step11' and edited_step11:
+                txt = open(edited_step11, 'r', encoding='utf-8').read()
+            else:
+                url = svg_files.get(layer)
+                txt = _fetch_svg(url) if url else None
+            layer_svgs[layer] = txt
+            return txt
+
+        for c in frame_adds:
+            el_id = c.get('id', '')
+            bbox = c.get('bbox')
+            per_side = [int(h) for h in (c.get('per_side_heights') or []) if h]
+            sides = int(c.get('sides') or 2)
+            crossbar_type = c.get('crossbar_type') or 'crossbar_Yellow'
+            frame_type = c.get('new_type') or 'greenFrame'
+            if not el_id or not bbox or not per_side:
+                skipped.append({'id': el_id, 'reason': 'add_frame needs id + bbox + per_side_heights'})
+                continue
+            try:
+                x = float(bbox['x']); y = float(bbox['y'])
+                w = float(bbox['w']); h = float(bbox['h'])
+            except (KeyError, TypeError, ValueError):
+                skipped.append({'id': el_id, 'reason': 'add_frame bad bbox'})
+                continue
+
+            els, frame_count, heights, cb_count, cb_color = _synthesize_frame_elements(
+                el_id, (x, y, w, h), per_side, sides, crossbar_type)
+
+            # Inject into step11 (main view) and the frames + crossbars layers.
+            for layer in ('step11', 'frames', 'crossbars'):
+                txt = _get_layer(layer)
+                if not txt:
+                    continue
+                # frames layer: box + labels; crossbars layer: the X lines;
+                # step11: everything (box + labels + X's all show on the drawing).
+                if layer == 'frames':
+                    inject = [e for e in els if 'crossbar_line_' not in e]
+                elif layer == 'crossbars':
+                    inject = [e for e in els if 'crossbar_line_' in e]
+                else:
+                    inject = els
+                new_txt, ch = _inject_before_svg_close(txt, inject)
+                if ch:
+                    layer_svgs[layer] = new_txt
+                    layer_touched.add(layer)
+
+            # Enrich the correction in place so correct.php gets the details it
+            # needs to update identified_elements + counts.
+            c['_frame_count'] = frame_count
+            c['_heights'] = heights
+            c['_frame_type'] = frame_type
+            c['_crossbar_count'] = cb_count
+            c['_crossbar_color'] = cb_color
+            applied.append({'id': el_id, 'action': 'add_frame',
+                            'frame_count': frame_count, 'heights': heights})
+
+        # Write + queue the touched layers for upload (replace any prior queue
+        # entry for the same layer so we upload the fully-mutated version).
+        for layer in layer_touched:
+            local = os.path.join(tmp_dir, f'{layer}_corrected.svg')
+            with open(local, 'w', encoding='utf-8') as f:
+                f.write(layer_svgs[layer])
+            edited_paths = [(l, p, lbl) for (l, p, lbl) in edited_paths if l != layer]
+            edited_paths.append((layer, local, layer))
 
     if not edited_paths:
         return {'success': False, 'error': 'no SVG edits took effect',
