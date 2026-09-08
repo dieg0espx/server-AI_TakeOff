@@ -754,12 +754,14 @@ def read_container_span(container, paths, default_span):
     """
     Read the span digit from a green container's glyphs.
 
-    An annotation like "5x4" means span=5, frame height=4. The first digit
-    (topmost for vertical layouts, leftmost for horizontal) is the span, which
-    overrides the drawing default bracing. Containers with no digit spec fall
-    back to `default_span`.
+    An annotation like "4 X 5" means span=4, frame width=5. The SPAN is the
+    FIRST digit read along the text baseline. These marks are drawn at any
+    angle — horizontal, vertical, or on a DIAGONAL (e.g. "4 X 5" running
+    bottom-left -> top-right) — so we order the digits along the direction the
+    text actually runs rather than assuming a pure top/left axis. Containers
+    with no digit spec fall back to `default_span`.
 
-    Returns the span as a string like "5'", or default if none found.
+    Returns the span as a string like "4'", or default if none found.
     """
     contained = find_contained_paths({0: container}, paths)
     analyzed = find_glyph_paths(contained)
@@ -774,12 +776,37 @@ def read_container_span(container, paths, default_span):
     if not digit_glyphs:
         return default_span
 
-    x0, y0, x1, y1 = container['screen_bbox']
-    is_vertical = (y1 - y0) >= (x1 - x0)
-    # First digit = topmost (vertical) or leftmost (horizontal).
-    key = (lambda g: g['screen_bbox'][1]) if is_vertical else (lambda g: g['screen_bbox'][0])
-    first = sorted(digit_glyphs, key=key)[0]
+    first = _first_digit_along_baseline(digit_glyphs)
     return f"{first['digit']}'"
+
+
+def _first_digit_along_baseline(digit_glyphs):
+    """Return the digit glyph that comes FIRST in reading order.
+
+    The size marks ("N X N") are drawn at arbitrary angles. Reading convention
+    is left-to-right, falling back to top-to-bottom only when the text is
+    steeply vertical (digits stacked with little horizontal separation). We
+    compare the horizontal vs vertical spread of the digit cloud to decide
+    which axis the text runs along, then take the leading glyph on that axis.
+    """
+    def center(g):
+        x0, y0, x1, y1 = g['screen_bbox']
+        return (x0 + x1) / 2.0, (y0 + y1) / 2.0
+
+    cs = [center(g) for g in digit_glyphs]
+    xs = [c[0] for c in cs]
+    ys = [c[1] for c in cs]
+    x_spread = max(xs) - min(xs)
+    y_spread = max(ys) - min(ys)
+
+    # Steeply vertical text (stacked digits): order top-to-bottom. Otherwise
+    # order left-to-right — this covers horizontal AND diagonal marks like
+    # "4 X 5", whose digits still progress left-to-right along the baseline.
+    if y_spread > x_spread * 1.5:
+        key = lambda g: center(g)[1]
+    else:
+        key = lambda g: center(g)[0]
+    return sorted(digit_glyphs, key=key)[0]
 
 
 def warn_unmatched_apostrophes(containers, paths):
