@@ -307,31 +307,43 @@ _CROSSBAR_TYPE_TO_SPAN = {
 }
 
 
-def _synthesize_frame_elements(el_id, bbox, per_side, sides, crossbar_type):
-    """Build the SVG element strings for a MANUALLY added frame at `bbox`,
-    matching how Step13/Step18 render an auto-detected frame:
-      - a green highlight rect carrying data-el-id=<el_id> (so it's selectable),
-      - one "<h>H x 4W" corner label per physical frame (heights duplicated
-        across `sides`), and
-      - one tri-colored crossbar X per stack LAYER, per half (left/right).
+# Crossbar type name -> the hex the pipeline draws (Step13 palette).
+_CROSSBAR_TYPE_HEX = {
+    'crossbar_Green': "#00c000", 'crossbar_Red': "#ff0000",
+    'crossbar_Yellow': "#ffff00", 'crossbar_Blue': "#0000ff",
+}
+# Crossbar type name -> the count bucket (matches correct.php).
+_CROSSBAR_TYPE_BUCKET = {
+    'crossbar_Green': 'crossbar_5', 'crossbar_Red': 'crossbar_6',
+    'crossbar_Yellow': 'crossbar_7', 'crossbar_Blue': 'crossbar_7',
+}
 
-    Returns (elements: list[str], frame_count, heights, crossbar_count,
-    crossbar_color_name). `per_side` is the per-side height stack (e.g. [5, 5]);
-    the full frame lists each height `sides` times.
+
+def _synthesize_frame_elements(el_id, bbox, layers, sides):
+    """Build the SVG element strings for a MANUALLY added frame at `bbox`,
+    matching how Step13/Step18 render an auto-detected frame.
+
+    `layers` is a PER-SIDE stack of {height, crossbar_type} dicts — one entry per
+    layer, EACH with its own crossbar. Every layer appears on both sides (`sides`,
+    normally 2), so a 2-layer stack -> 4 physical frames.
+
+    Produces:
+      - a green highlight rect carrying data-el-id=<el_id> (selectable),
+      - one "<h>H x 4W" corner label per physical frame, and
+      - one tri-colored crossbar X per layer per half, colored by THAT layer's
+        crossbar_type.
+
+    Returns (elements, frame_count, heights, crossbar_bucket_counts) where
+    crossbar_bucket_counts is {bucket: n} tallied across all physical crossbars.
     """
     x, y, w, h = bbox
     INSET, STROKE, HALF_GAP, GAP = 3.0, 2.0, 2.0, 3.0
 
-    heights = [ht for ht in per_side for _ in range(sides)]
+    per_side_heights = [int(L.get('height')) for L in layers]
+    per_side_cbs = [L.get('crossbar_type') or 'crossbar_Yellow' for L in layers]
+    # Each layer appears on both sides.
+    heights = [ht for ht in per_side_heights for _ in range(sides)]
     frame_count = len(heights)
-
-    # Crossbar color: derived from the form's crossbar_type (its span) against
-    # each layer's frame height. All layers here share the chosen crossbar type,
-    # so use it directly for the color + count.
-    span = _CROSSBAR_TYPE_TO_SPAN.get(crossbar_type, "7'")
-    # Color per layer by the layer's height + span (matches color_for_frame).
-    layer_colors = [color_for_frame(ht, span)[0] for ht in per_side] or ["#ffff00"]
-    color_name = crossbar_type.replace('crossbar_', '') if crossbar_type else 'Yellow'
 
     els = []
     # 1) The frame box (green), selectable via data-el-id.
@@ -344,25 +356,28 @@ def _synthesize_frame_elements(el_id, bbox, per_side, sides, crossbar_type):
     label_lines = [f"{int(ht)}H x 4W" for ht in heights]
     els.append(_corner_text(f"layers_addedFrames_{el_id}", x + 3, y + h / 2.0,
                             FRAME_COLOR, label_lines))
-    # 3) Crossbar X's — left half + right half, one full-height X per layer.
-    n_rows = max(1, len(per_side))
+    # 3) Crossbar X's — left half + right half, one X per layer, in THAT layer's
+    #    crossbar color.
     yt, yb = y + INSET, y + h - INSET
     mid = x + w / 2.0
     cells = [(x + INSET, mid - HALF_GAP / 2.0),
              (mid + HALF_GAP / 2.0, x + w - INSET)]
     base = f"crossbar_line_addedFrame_{el_id}"
     for si, (cx0, cx1) in enumerate(cells):
-        for ci in range(n_rows):
-            color_hex = layer_colors[ci % len(layer_colors)]
+        for ci, cb_type in enumerate(per_side_cbs):
+            color_hex = _CROSSBAR_TYPE_HEX.get(cb_type, "#ffff00")
             off = ci * GAP
             b = f"{base}_s{si + 1}_c{ci + 1}"
             els += _tri_color_diagonal(f"{b}_d1", (cx0 + off, yt), (cx1 + off, yb), color_hex, STROKE)
             els += _tri_color_diagonal(f"{b}_d2", (cx1 + off, yt), (cx0 + off, yb), color_hex, STROKE)
 
-    # Crossbar count: one crossbar per stack LAYER per side (== frame_count),
-    # matching how the pipeline tallies (one colored X-line per frame).
-    crossbar_count = frame_count
-    return els, frame_count, heights, crossbar_count, color_name
+    # Crossbar count per bucket: one crossbar per layer per side.
+    crossbar_bucket_counts = {}
+    for cb_type in per_side_cbs:
+        bucket = _CROSSBAR_TYPE_BUCKET.get(cb_type, 'crossbar_7')
+        crossbar_bucket_counts[bucket] = crossbar_bucket_counts.get(bucket, 0) + sides
+
+    return els, frame_count, heights, crossbar_bucket_counts
 
 
 def _inject_before_svg_close(svg, elements):
@@ -525,12 +540,12 @@ def apply_corrections(tracking_url, corrections):
         for c in frame_adds:
             el_id = c.get('id', '')
             bbox = c.get('bbox')
-            per_side = [int(h) for h in (c.get('per_side_heights') or []) if h]
+            # layers: per-side stack of {height, crossbar_type}, one per layer.
+            layers = [L for L in (c.get('layers') or []) if L.get('height')]
             sides = int(c.get('sides') or 2)
-            crossbar_type = c.get('crossbar_type') or 'crossbar_Yellow'
             frame_type = c.get('new_type') or 'greenFrame'
-            if not el_id or not bbox or not per_side:
-                skipped.append({'id': el_id, 'reason': 'add_frame needs id + bbox + per_side_heights'})
+            if not el_id or not bbox or not layers:
+                skipped.append({'id': el_id, 'reason': 'add_frame needs id + bbox + layers'})
                 continue
             try:
                 x = float(bbox['x']); y = float(bbox['y'])
@@ -539,8 +554,8 @@ def apply_corrections(tracking_url, corrections):
                 skipped.append({'id': el_id, 'reason': 'add_frame bad bbox'})
                 continue
 
-            els, frame_count, heights, cb_count, cb_color = _synthesize_frame_elements(
-                el_id, (x, y, w, h), per_side, sides, crossbar_type)
+            els, frame_count, heights, cb_buckets = _synthesize_frame_elements(
+                el_id, (x, y, w, h), layers, sides)
 
             # Inject into step11 (main view) and the frames + crossbars layers.
             for layer in ('step11', 'frames', 'crossbars'):
@@ -565,8 +580,7 @@ def apply_corrections(tracking_url, corrections):
             c['_frame_count'] = frame_count
             c['_heights'] = heights
             c['_frame_type'] = frame_type
-            c['_crossbar_count'] = cb_count
-            c['_crossbar_color'] = cb_color
+            c['_crossbar_buckets'] = cb_buckets   # {bucket: count}
             applied.append({'id': el_id, 'action': 'add_frame',
                             'frame_count': frame_count, 'heights': heights})
 

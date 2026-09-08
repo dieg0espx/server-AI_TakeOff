@@ -272,14 +272,14 @@ try {
                 $frames[$hk] = ($frames[$hk] ?? 0) + 1;
                 $frames['total'] = ($frames['total'] ?? 0) + 1;
             }
-            // Crossbar counts: map the chosen crossbar color -> bucket, +count.
-            $cbColor = $c['_crossbar_color'] ?? 'Yellow';
-            $cbCount = (int)($c['_crossbar_count'] ?? 0);
-            $cbKey = ($cbColor === 'Green') ? 'crossbar_5'
-                : (($cbColor === 'Red') ? 'crossbar_6' : 'crossbar_7'); // Yellow/Blue/other -> 7
-            if ($cbCount > 0) {
-                $crossbars[$cbKey] = ($crossbars[$cbKey] ?? 0) + $cbCount;
-                $crossbars['total'] = ($crossbars['total'] ?? 0) + $cbCount;
+            // Crossbar counts: each layer has its OWN crossbar, so the Python
+            // side tallied per-bucket counts in _crossbar_buckets ({bucket:n}).
+            $cbBuckets = (isset($c['_crossbar_buckets']) && is_array($c['_crossbar_buckets']))
+                ? $c['_crossbar_buckets'] : [];
+            foreach ($cbBuckets as $bk => $bn) {
+                if (!in_array($bk, ['crossbar_5','crossbar_6','crossbar_7'], true)) continue;
+                $crossbars[$bk] = ($crossbars[$bk] ?? 0) + (int)$bn;
+                $crossbars['total'] = ($crossbars['total'] ?? 0) + (int)$bn;
             }
             // Enriched frame entry (mirrors auto-detected frames).
             $sizeStr = implode(' + ', array_map(function($h){ return ((int)$h)."H x 4W"; },
