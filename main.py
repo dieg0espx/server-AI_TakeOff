@@ -526,18 +526,12 @@ def run_pipeline_with_logging(upload_id: str):
     else:
         print(f"⚠️  Step14 failed, but pipeline will continue")
 
-    # Step16: group same-color frames by shared axis, write per-group cropped SVGs
-    try:
-        print(f"\n{'='*60}")
-        print("📋 Running Step16 (frame grouping + per-group SVGs)")
-        print(f"{'='*60}")
-        from processors.Step16 import run_step16
-        if run_step16():
-            print("✅ Step16 completed")
-        else:
-            print("⚠️  Step16 failed, continuing...")
-    except Exception as e:
-        print(f"⚠️  Error in Step16: {e}")
+    # NOTE: Step16 already ran earlier (right after Step13b) and is fully
+    # deterministic — it reads only files/Step11.svg (unchanged since) and
+    # writes Step16.svg, tempData/step16_groups.json, and files/groups/*.svg.
+    # Nothing between that call and here (SVG upload, Step14 text rewrite)
+    # touches any Step16 input, so re-running it here just recomputed identical
+    # output. Step17 below consumes files/groups/ from that first run directly.
 
     # Step17: per-group beam-bundle + alum-rail detection, synthesize wood beams
     try:
