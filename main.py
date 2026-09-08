@@ -770,22 +770,27 @@ def run_pipeline_with_logging(upload_id: str):
     # insert (Step15), and update_svg.php re-sends it afterwards as a backstop.
     try:
         print(f"\n📤 Uploading Step18 layer SVGs to TTF FTP...")
-        from api.cloudinary_manager import upload_svg_to_api
+        from api.cloudinary_manager import upload_svgs_to_api
 
-        layer_urls = {}
+        # Build the upload job list. Distinct label per layer: the remote name
+        # is timestamped only to the second, so unlabeled uploads would
+        # overwrite each other. Skip layers Step18 didn't produce (e.g. no
+        # Step13.svg -> no crossbars.svg); not an upload failure.
+        upload_jobs = []
         for layer in ("alumBeams", "crossbars", "frames", "shores", "wood"):
             layer_path = os.path.join("files", f"{layer}.svg")
             if not os.path.exists(layer_path):
-                # Step18 skips a layer when its inputs are missing (e.g. no
-                # Step13.svg -> no crossbars.svg); not an upload failure.
                 print(f"⚠️  {layer_path} not found — skipping")
                 continue
-            # Distinct label per layer: the remote name is timestamped only to
-            # the second, so unlabeled uploads would overwrite each other.
-            layer_url = upload_svg_to_api(layer_path, label=layer)
-            if layer_url:
-                layer_urls[layer] = layer_url
-                print(f"✅ {layer}.svg uploaded: {layer_url}")
+            upload_jobs.append((layer, layer_path, layer))
+
+        # Upload all layers CONCURRENTLY — each is 5–6 MB and independent, so
+        # fanning them out turns ~5×2s of sequential FTP handshakes into one
+        # parallel batch.
+        layer_urls = upload_svgs_to_api(upload_jobs)
+        for layer, _path, _label in upload_jobs:
+            if layer in layer_urls:
+                print(f"✅ {layer}.svg uploaded: {layer_urls[layer]}")
             else:
                 upload_ok = False
                 print(f"⚠️  Failed to upload {layer}.svg")

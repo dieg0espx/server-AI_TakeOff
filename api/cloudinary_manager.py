@@ -118,3 +118,45 @@ def upload_svg_to_api(file_path: str, label: Optional[str] = None) -> Optional[s
     except Exception as e:
         print(f"❌ FTP upload failed: {e}")
         return None
+
+
+def upload_svgs_to_api(jobs: list) -> dict:
+    """Upload several SVGs to the FTP server CONCURRENTLY.
+
+    Each layer SVG is 5–6 MB and every upload_svg_to_api() call opens its own
+    FTP connection (login handshake + STOR). Run sequentially that's ~2s each;
+    since the uploads are independent and ftplib.FTP is not safe to share
+    across threads, we fan them out one-connection-per-thread instead.
+
+    Args:
+        jobs: list of (key, file_path, label) tuples. `key` is the caller's
+            identifier for the upload (e.g. the layer name); `label` is the
+            remote-filename suffix passed through to upload_svg_to_api().
+
+    Returns:
+        dict mapping each `key` to its public URL (missing when that upload
+        failed or the file was absent).
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    if not jobs:
+        return {}
+
+    results = {}
+    # One worker per job (capped) so all uploads run in parallel; each worker
+    # owns its own FTP connection inside upload_svg_to_api().
+    with ThreadPoolExecutor(max_workers=min(len(jobs), 8)) as pool:
+        futures = {
+            pool.submit(upload_svg_to_api, path, label): key
+            for key, path, label in jobs
+        }
+        for fut in futures:
+            key = futures[fut]
+            try:
+                url = fut.result()
+            except Exception as e:
+                print(f"❌ FTP upload failed for {key}: {e}")
+                url = None
+            if url:
+                results[key] = url
+    return results
