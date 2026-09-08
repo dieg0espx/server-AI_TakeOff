@@ -113,23 +113,110 @@ def _crossbars_from_svg(svg_path):
     return out
 
 
-def build_element_index(base_dir="files"):
-    """Assemble the {path_id: {category, type}} index from files in base_dir.
+# Container-rect id -> (x, y, w, h), lifted from the rendered SVG so we can
+# tie a frame annotation box to the physical-frame data Step13 recorded by
+# geometry in frame_layers.json.
+_CONTAINER_RECT_RE = re.compile(
+    r'id="(?P<id>(?:green|orange|pink)_container_\d+)"\s+'
+    r'x="(?P<x>[\d.]+)"\s+y="(?P<y>[\d.]+)"\s+'
+    r'width="(?P<w>[\d.]+)"\s+height="(?P<h>[\d.]+)"'
+)
 
-    Returns the dict (empty if nothing could be read). Safe to call even when
-    some sources are missing — each source is optional.
+
+def _container_geometry(svg_path):
+    """Return {container_id: (cx, cy)} — the CENTER of each frame container
+    rect, so frame_layers boxes (keyed by geometry) can be matched to ids."""
+    out = {}
+    try:
+        with open(svg_path, "r", encoding="utf-8") as f:
+            text = f.read()
+    except Exception:
+        return out
+    for m in _CONTAINER_RECT_RE.finditer(text):
+        x = float(m.group("x")); y = float(m.group("y"))
+        w = float(m.group("w")); h = float(m.group("h"))
+        out[m.group("id")] = (x + w / 2.0, y + h / 2.0)
+    return out
+
+
+def _frame_details_by_container(base_dir):
+    """Map each frame container id -> {frame_count, heights, frame_size}.
+
+    frame_layers.json holds one entry PER container but keyed by geometry
+    (x,y,w,h + the physical `layers`/`heights` stack). Match each layer box to
+    its container id by center proximity so the enriched index can report how
+    many physical frames a box holds and each frame's height — instead of the
+    old one-opaque-box-per-annotation view.
+    """
+    layers = _load_json(os.path.join(base_dir, "tempData", "frame_layers.json"))
+    if not isinstance(layers, list) or not layers:
+        return {}
+
+    # Container centers from whichever rendered SVG carries the rects.
+    centers = {}
+    for svg_name in ("Step13.svg", "frames.svg"):
+        centers = _container_geometry(os.path.join(base_dir, svg_name))
+        if centers:
+            break
+    if not centers:
+        return {}
+
+    details = {}
+    for box in layers:
+        try:
+            bx = float(box["x"]) + float(box["w"]) / 2.0
+            by = float(box["y"]) + float(box["h"]) / 2.0
+        except (KeyError, TypeError, ValueError):
+            continue
+        # Nearest container center within ~10px (same tolerance as Step18).
+        best_id, best_d = None, None
+        for cid, (cx, cy) in centers.items():
+            d = (cx - bx) ** 2 + (cy - by) ** 2
+            if best_d is None or d < best_d:
+                best_d, best_id = d, cid
+        if best_id is None or best_d > 100:
+            continue
+        heights = [int(h) for h in (box.get("heights") or [])]
+        # frame_size: one "<h>H x 4W" per distinct height (a uniform stack -> a
+        # single size; a mixed 5+6 stack -> both). Width is 4' by drawing spec.
+        distinct = sorted(set(heights))
+        frame_size = " + ".join(f"{h}H x 4W" for h in distinct) if distinct else None
+        details[best_id] = {
+            "frame_count": int(box.get("layers") or len(heights)),
+            "heights": heights,
+            "frame_size": frame_size,
+        }
+    return details
+
+
+def build_element_index(base_dir="files"):
+    """Assemble the {path_id: {category, type, ...}} index from files in base_dir.
+
+    Frame container entries are ENRICHED with the physical-frame breakdown
+    (frame_count, heights, frame_size) so the frontend can show the real frames
+    inside a box rather than treating the green/orange/pink square as one
+    opaque unit. Returns the dict (empty if nothing could be read). Safe to call
+    even when some sources are missing — each source is optional.
     """
     index = {}
+
+    # Physical-frame breakdown per container, matched from frame_layers.json.
+    frame_details = _frame_details_by_container(base_dir)
 
     # Beams / frames / shores from identified_elements.json (path_id -> class).
     identified = _load_json(
         os.path.join(base_dir, "tempData", "identified_elements.json"))
     if isinstance(identified, dict):
         for pid, cls in identified.items():
-            index[str(pid)] = {
+            pid = str(pid)
+            entry = {
                 "category": _category_for_class(cls),
                 "type": str(cls),
             }
+            # Attach the physical-frame detail to frame container entries.
+            if pid in frame_details:
+                entry.update(frame_details[pid])
+            index[pid] = entry
 
     # Crossbars from the rendered crossbars.svg (fallback: Step13.svg).
     for svg_name in ("crossbars.svg", "Step13.svg"):
