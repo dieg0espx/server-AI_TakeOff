@@ -37,12 +37,19 @@ def _category_for_class(cls: str) -> str:
     return "other"
 
 
-# crossbar line stroke color -> type label. Step13 draws Green/Red/Yellow lines;
-# create.php maps Green->crossbar_5, Red->crossbar_6, Yellow->crossbar_7.
+# crossbar line stroke color -> type label. These hexes MUST match the palette
+# Step13 actually draws (Step13.CROSS_BAR_COLOR_HEX). Each crossbar diagonal is
+# tri-colored — colored tips + a white middle — so a single crossbar's lines
+# carry BOTH the color hex and #ffffff; white is intentionally NOT in this map
+# so the white middle segments don't get typed as their own crossbar.
 _CROSSBAR_COLOR_TYPES = {
-    "#00ff00": "crossbar_Green",
-    "#ff0000": "crossbar_Red",
+    "#a000c0": "crossbar_Purple",
     "#ffff00": "crossbar_Yellow",
+    "#00c000": "crossbar_Green",
+    "#0000ff": "crossbar_Blue",
+    "#ff69b4": "crossbar_Pink",
+    "#ff0000": "crossbar_Red",
+    "#ff8c00": "crossbar_Orange",
 }
 
 # A <line ... id="crossbar_line_..." ... /> element with its style/stroke.
@@ -62,7 +69,15 @@ def _load_json(path):
 
 
 def _crossbars_from_svg(svg_path):
-    """Return {line_id: {"category": "crossbars", "type": "crossbar_<Color>"}}."""
+    """Return {line_id: {"category": "crossbars", "type": "crossbar_<Color>"}}.
+
+    Each crossbar diagonal is drawn as 3 segments — "<base>_1" (colored tip),
+    "<base>_2" (WHITE middle), "<base>_3" (colored tip). The white middle isn't
+    its own crossbar color; it inherits the diagonal's color from its siblings.
+    So we resolve every segment's type to the colored tip's type, keyed by the
+    shared "<base>" prefix, and never emit the generic "crossbar" for a white
+    middle whose colored siblings are known.
+    """
     out = {}
     text = None
     try:
@@ -70,12 +85,30 @@ def _crossbars_from_svg(svg_path):
             text = f.read()
     except Exception:
         return out
+
+    # First pass: collect each segment's raw stroke and the color type of every
+    # diagonal base (from its colored, non-white tips).
+    segs = []          # (line_id, base, raw_color)
+    base_type = {}     # "<base>" -> "crossbar_<Color>"
     for m in _CROSSBAR_LINE_RE.finditer(text):
         tag = m.group(0)
         lid = m.group("id")
         sm = _STROKE_RE.search(tag)
         color = ("#" + sm.group(1).lower()) if sm else None
-        ctype = _CROSSBAR_COLOR_TYPES.get(color, "crossbar")
+        # "<base>_<segidx>" -> strip the trailing "_<n>" to group the 3 segments.
+        base = lid.rsplit("_", 1)[0]
+        segs.append((lid, base, color))
+        ctype = _CROSSBAR_COLOR_TYPES.get(color)
+        if ctype is not None:
+            base_type[base] = ctype
+
+    # Second pass: type every segment by its diagonal's resolved color (so the
+    # white middle inherits its tips' type). Fall back to a per-color match,
+    # then the generic label only if truly unknown.
+    for lid, base, color in segs:
+        ctype = (base_type.get(base)
+                 or _CROSSBAR_COLOR_TYPES.get(color)
+                 or "crossbar")
         out[lid] = {"category": "crossbars", "type": ctype}
     return out
 

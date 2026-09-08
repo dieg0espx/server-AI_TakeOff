@@ -504,9 +504,13 @@ def run_step18():
 
         # Frames: overlay boxes (green + orange + any pink/yellow), all green.
         frame_layers = []
+        # NOTE: each detection file stores its box list under its OWN key.
+        # pinkFrames.json uses "pink_shapes" (OpenCV contour detection), not
+        # "rectangles" — reading the wrong key silently dropped all pink frames
+        # from the drawn/labeled/counted output.
         for fname, lk in (("greenFrames.json", "rectangles"),
                           ("orangeFrames.json", "rectangles"),
-                          ("pinkFrames.json", "rectangles"),
+                          ("pinkFrames.json", "pink_shapes"),
                           ("yellowFrames.json", "rectangles")):
             boxes = _load_boxes(os.path.join(td, fname), lk)
             if boxes:

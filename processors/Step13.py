@@ -978,7 +978,8 @@ def _tri_color_diagonal(id_base, p0, p1, color_hex, stroke_width=2.0,
 
 
 def add_crossbar_lines(svg_content, paths, default_span, default_height,
-                       prefixes=('green_container', 'orange_container'),
+                       prefixes=('green_container', 'orange_container',
+                                 'pink_container'),
                        default_stack=None):
     """
     For every container of the given prefixes:
@@ -1273,7 +1274,8 @@ def run_step13():
 
             # Safeguard: warn if any apostrophe/dimension mark was missed, so a
             # new coordinate variant can't silently corrupt the frame counts.
-            for _pre in ('green_container', 'orange_container'):
+            for _pre in ('green_container', 'orange_container',
+                         'pink_container'):
                 warn_unmatched_apostrophes(get_containers(_root, _pre), green_paths)
 
             with open(out_path, 'r', encoding='utf-8') as f:
