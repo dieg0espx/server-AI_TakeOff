@@ -334,9 +334,22 @@ def _overlay_rects(base_svg, out_path, box_layers, label, layer_boxes=None):
                 h = int(m.group(1))
                 height_counts[h] = height_counts.get(h, 0) + times
 
+    # prefix used in the rendered rect id -> the id NAMESPACE that
+    # identified_elements uses for that element, so the correction endpoint can
+    # find a frame/shore by its real element id (the rect's own hl_ index is
+    # just a positional counter and does NOT match identified_elements).
+    ID_NAMESPACE = {
+        "greenFrames": "green_container",
+        "orangeFrames": "orange_container",
+        "pinkFrames": "pink_container",
+        "yellowFrames": "yellow_container",
+        "shore_x": "x_shape",
+        "shore_square": "red_square",
+    }
+
     # Flatten every color group into one indexed list so piggybacks can be
     # detected across colors (green frame stacked on an orange one, etc.).
-    flat = []  # (x, y, w, h, color, prefix, i)
+    flat = []  # (x, y, w, h, color, prefix, i, el_id)
     for boxes, color, prefix in box_layers:
         for i, b in enumerate(boxes, 1):
             try:
@@ -344,7 +357,12 @@ def _overlay_rects(base_svg, out_path, box_layers, label, layer_boxes=None):
                 w = float(b["width"]); h = float(b["height"])
             except (KeyError, TypeError, ValueError):
                 continue
-            flat.append((x, y, w, h, color, prefix, i))
+            # Real identified_elements id: "<namespace>_<box id>" (box id is the
+            # detection JSON's own id). Falls back to the positional counter.
+            ns = ID_NAMESPACE.get(prefix)
+            box_id = b.get("id", i)
+            el_id = f"{ns}_{box_id}" if ns else f"{prefix}_{box_id}"
+            flat.append((x, y, w, h, color, prefix, i, el_id))
 
     coords = [(f[0], f[1], f[2], f[3]) for f in flat]
     pig_pairs = _find_piggybacks(coords)
@@ -352,11 +370,13 @@ def _overlay_rects(base_svg, out_path, box_layers, label, layer_boxes=None):
     # two separate colored squares, so suppress them from the normal pass.
     suppressed = {idx for pair in pig_pairs for idx in pair}
 
-    for k, (x, y, w, h, color, prefix, i) in enumerate(flat):
+    for k, (x, y, w, h, color, prefix, i, el_id) in enumerate(flat):
         if k in suppressed:
             continue
+        # data-el-id carries the REAL identified_elements id so the correction
+        # endpoint can locate this exact frame/shore (the hl_ id is positional).
         els.append(
-            f'    <rect id="hl_{prefix}_{i}" x="{x}" y="{y}" '
+            f'    <rect id="hl_{prefix}_{i}" data-el-id="{el_id}" x="{x}" y="{y}" '
             f'width="{w}" height="{h}" '
             f'style="fill:none;stroke:{color};stroke-width:3;stroke-opacity:1" />'
         )
@@ -373,14 +393,17 @@ def _overlay_rects(base_svg, out_path, box_layers, label, layer_boxes=None):
     # and ONE merged annotation whose frame count counts the shared side ONCE
     # (A's frames + B's frames - one shared stack).
     for pk, (i, j) in enumerate(pig_pairs, 1):
-        ax, ay, aw, ah, _, _, _ = flat[i]
-        bx, by, bw, bh, _, _, _ = flat[j]
+        ax, ay, aw, ah, _, _, _, a_id = flat[i]
+        bx, by, bw, bh, _, _, _, b_id = flat[j]
         ux, uy = min(ax, bx), min(ay, by)
         uw = max(ax + aw, bx + bw) - ux
         uh = max(ay + ah, by + bh) - uy
         pad = 2.0  # nudge the outline just outside both boxes
+        # A merged outline covers BOTH bays' elements; list both real ids so a
+        # correction to either can locate this unit.
         els.append(
-            f'    <rect id="piggyback_{pk}" x="{ux - pad}" y="{uy - pad}" '
+            f'    <rect id="piggyback_{pk}" data-el-id="{a_id}" data-el-id-2="{b_id}" '
+            f'x="{ux - pad}" y="{uy - pad}" '
             f'width="{uw + 2 * pad}" height="{uh + 2 * pad}" '
             f'style="fill:none;stroke:{FRAME_COLOR};stroke-width:3;stroke-opacity:1" />'
         )

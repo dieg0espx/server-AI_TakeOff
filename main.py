@@ -1,7 +1,8 @@
 # source venv/bin/activate
 # uvicorn main:app --host 0.0.0.0 --port 5001 --reload
 
-from fastapi import FastAPI, BackgroundTasks
+from fastapi import FastAPI, BackgroundTasks, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import sys
@@ -926,6 +927,48 @@ async def root():
 @app.get("/health")
 async def health_check():
     return {"status": "healthy", "service": "AI-Takeoff Server"}
+
+
+# ── Element corrections (false-positive removal / reclassification) ──
+# The frontend sends corrections for a processed record; we edit the affected
+# layer SVG(s) in place, re-upload them, and persist the mutated
+# identified_elements + recomputed counts via correct.php. API-key guarded.
+CORRECT_API_KEY = os.environ.get("AITAKEOFF_CORRECT_KEY", "ttf-correct-2026")
+
+
+@app.post("/AI-Takeoff/{tracking_url}/correct")
+async def correct_ai_takeoff(tracking_url: str, request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400,
+                            content={"success": False, "error": "invalid JSON body"})
+
+    # Shared-secret guard (X-Api-Key header or api_key body field).
+    provided = request.headers.get("x-api-key") or body.get("api_key", "")
+    if provided != CORRECT_API_KEY:
+        return JSONResponse(status_code=401,
+                            content={"success": False, "error": "unauthorized"})
+
+    corrections = body.get("corrections") or []
+    if not isinstance(corrections, list) or not corrections:
+        return JSONResponse(status_code=400,
+                            content={"success": False,
+                                     "error": "non-empty corrections[] required"})
+
+    try:
+        from processors.corrections import apply_corrections
+        # apply_corrections does blocking network+SVG work; run it off the event
+        # loop so the server stays responsive.
+        result = await asyncio.to_thread(apply_corrections, tracking_url, corrections)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(status_code=500,
+                            content={"success": False, "error": str(e)})
+
+    status = 200 if result.get("success") else 400
+    return JSONResponse(status_code=status, content=result)
 
 
 # AI-Takeoff specific endpoint
