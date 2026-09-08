@@ -225,6 +225,31 @@ try {
     foreach ($corrections as $c) {
         $id = $c['id'] ?? '';
         $action = $c['action'] ?? '';
+
+        // ── ADD: assign a type to a previously-undetected element. The id is a
+        //    gray path/element NOT yet in identified_elements, so handle it
+        //    before the "must exist" guard below. ──
+        if ($action === 'add') {
+            $newType = $c['new_type'] ?? '';
+            if ($id === '' || $newType === '') {
+                $skipped[] = ['id' => $id, 'reason' => 'add needs id + new_type'];
+                continue;
+            }
+            if (isset($elements[$id])) {
+                $skipped[] = ['id' => $id, 'reason' => 'already assigned'];
+                continue;
+            }
+            $newCat = (substr($newType, 0, 8) === 'alumBeam') ? 'alumBeams'
+                : ((substr($newType, -5) === 'Frame') ? 'frames'
+                : ((substr($newType, 0, 6) === 'shore_') ? 'shores'
+                : ((substr($newType, 0, 9) === 'crossbar_') ? 'crossbars' : 'other')));
+            $newEntry = ['category' => $newCat, 'type' => $newType];
+            applyDelta($alumBeams, $shapes, $crossbars, $frames, $newEntry, +1);
+            $elements[$id] = $newEntry;
+            $applied[] = ['id' => $id, 'action' => 'add', 'new_type' => $newType];
+            continue;
+        }
+
         if ($id === '' || !isset($elements[$id])) {
             $skipped[] = ['id' => $id, 'reason' => 'not found'];
             continue;

@@ -84,6 +84,21 @@ def _layer_for_category(category):
     }.get(category)
 
 
+def _category_for_type(new_type):
+    """Category inferred from a type code (for ADDs, where the element isn't yet
+    in identified_elements). Mirrors the frontend/PHP inference."""
+    t = new_type or ''
+    if t.startswith('alumBeam'):
+        return 'alumBeams'
+    if t.endswith('Frame'):
+        return 'frames'
+    if t.startswith('shore_'):
+        return 'shores'
+    if t.startswith('crossbar'):
+        return 'crossbars'
+    return 'other'
+
+
 def _fetch_svg(url):
     r = requests.get(url, timeout=60)
     r.raise_for_status()
@@ -220,8 +235,11 @@ def _edit_step11(svg, el_id, action, new_type, category):
       reclassify -> recolor to the new type's color (beams per size; shores
                     x/square; frames stay green)
     """
-    if category == 'crossbars':
-        return svg, False   # crossbars live only on crossbars.svg
+    # crossbars are drawn as <line> structures only on crossbars.svg — a lone
+    # step11 path can't become a real crossbar, but for an ADD we still recolor
+    # the clicked path to the crossbar color so the user sees their assignment.
+    if category == 'crossbars' and action != 'add':
+        return svg, False
     pat = re.compile(rf'(<(?:rect|path)\b[^>]*\bid="{re.escape(el_id)}"[^>]*?/>)', re.DOTALL)
     m = pat.search(svg)
     if not m:
@@ -231,14 +249,18 @@ def _edit_step11(svg, el_id, action, new_type, category):
     if action == 'remove':
         target = _STEP11_GRAY
     else:
-        # reclassify -> the new type's color
+        # reclassify / add -> the new type's color
         if category == 'alumBeams':
             key = 'alumBeam106' if new_type == 'alumBeam10_6' else new_type
             target = ALUM_BEAM_COLORS.get(new_type, ALUM_BEAM_COLORS.get(key, ALUM_BEAM_FALLBACK))
         elif category == 'shores':
             target = SHORE_COLOR_X if new_type == 'shore_x' else SHORE_COLOR_SQUARE
+        elif category == 'crossbars':
+            target = _crossbar_hex(new_type)
+        elif category == 'frames':
+            target = FRAME_COLOR if action == 'add' else None  # frames render green
         else:
-            target = None   # frames render one green; nothing to recolor
+            target = None
     if target is None:
         return svg, True    # counted as handled (no visual change needed)
 
@@ -280,10 +302,16 @@ def apply_corrections(tracking_url, corrections):
         return {'success': False, 'error': 'record has no svg_files to edit'}
 
     # ── 2. Group corrections by layer; skip unknown/absent ids ──
+    #    An ADD targets a gray path NOT yet in identified_elements, so its
+    #    category comes from new_type. It's recolored in step11 (where the gray
+    #    path lives) in step 3b below, so it doesn't need a category-layer group.
     by_layer = {}          # layer -> list of (correction, entry)
     skipped = []
     for c in corrections:
         el_id = c.get('id', '')
+        action = c.get('action')
+        if action == 'add':
+            continue  # handled in the step11 pass (3b)
         entry = elements.get(el_id)
         if el_id == '' or entry is None:
             skipped.append({'id': el_id, 'reason': 'not found in identified_elements'})
@@ -295,7 +323,8 @@ def apply_corrections(tracking_url, corrections):
             continue
         by_layer.setdefault(layer, []).append(c)
 
-    if not by_layer:
+    has_add = any(c.get('action') == 'add' for c in corrections)
+    if not by_layer and not has_add:
         return {'success': False, 'error': 'no applicable corrections', 'skipped': skipped}
 
     # ── 3. Fetch, edit, and re-upload each affected layer SVG ──
@@ -347,12 +376,21 @@ def apply_corrections(tracking_url, corrections):
             s11_changed = False
             for c in corrections:
                 el_id = c.get('id', '')
-                entry = elements.get(el_id)
-                if entry is None:
-                    continue
-                category = _category_of(el_id, entry)
-                s11, ch = _edit_step11(s11, el_id, c.get('action'),
-                                       c.get('new_type'), category)
+                action = c.get('action')
+                new_type = c.get('new_type')
+                if action == 'add':
+                    # Category comes from new_type (the path isn't in the index).
+                    category = _category_for_type(new_type)
+                else:
+                    entry = elements.get(el_id)
+                    if entry is None:
+                        continue
+                    category = _category_of(el_id, entry)
+                s11, ch = _edit_step11(s11, el_id, action, new_type, category)
+                if ch and action == 'add':
+                    applied.append({'id': el_id, 'action': 'add', 'new_type': new_type})
+                elif not ch and action == 'add':
+                    skipped.append({'id': el_id, 'reason': f'{el_id} not found in step11.svg'})
                 s11_changed = s11_changed or ch
             if s11_changed:
                 local = os.path.join(tmp_dir, 'step11_corrected.svg')
