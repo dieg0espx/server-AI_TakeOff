@@ -44,6 +44,16 @@ try:
 except Exception:  # pragma: no cover
     from Step13 import CROSS_BAR_COLOR_HEX
 
+# The MAIN drawing (step11) colors beams with a DIFFERENT palette than the
+# alumBeams.svg layer: Step17's color->size map (which mirrors Step11's beam
+# palette) is what actually appears on the drawing. Invert it to size->color so
+# an assigned/reclassified beam in step11 matches the auto-detected beams.
+try:
+    from processors.Step17 import ALUM_BEAM_COLORS as _S17_COLOR_TO_SIZE
+except Exception:  # pragma: no cover
+    from Step17 import ALUM_BEAM_COLORS as _S17_COLOR_TO_SIZE
+STEP11_BEAM_COLORS = {size: hexcol for hexcol, (size, *_ ) in _S17_COLOR_TO_SIZE.items()}
+
 CORRECT_PHP_URL = os.environ.get(
     'CORRECT_API_URL',
     'https://ttfconstruction.com/ai-takeoff-results/correct.php')
@@ -249,10 +259,11 @@ def _edit_step11(svg, el_id, action, new_type, category):
     if action == 'remove':
         target = _STEP11_GRAY
     else:
-        # reclassify / add -> the new type's color
+        # reclassify / add -> the new type's color, using the STEP11 (drawing)
+        # palette so it matches the auto-detected beams on the Main view.
         if category == 'alumBeams':
-            key = 'alumBeam106' if new_type == 'alumBeam10_6' else new_type
-            target = ALUM_BEAM_COLORS.get(new_type, ALUM_BEAM_COLORS.get(key, ALUM_BEAM_FALLBACK))
+            key = 'alumBeam10_6' if new_type == 'alumBeam106' else new_type
+            target = STEP11_BEAM_COLORS.get(key, STEP11_BEAM_COLORS.get(new_type, ALUM_BEAM_FALLBACK))
         elif category == 'shores':
             target = SHORE_COLOR_X if new_type == 'shore_x' else SHORE_COLOR_SQUARE
         elif category == 'crossbars':
