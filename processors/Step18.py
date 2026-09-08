@@ -213,16 +213,20 @@ def _find_piggybacks(boxes, edge_tol=15.0, align_tol=8.0):
     return pairs
 
 
-def _corner_text(el_id, tx, ty, color, lines):
-    """A top-left-corner <text> with one <tspan> per line, stacked downward by
-    the 10px font line height."""
+def _corner_text(el_id, tx, cy, color, lines):
+    """A left-aligned <text> whose stacked lines are CENTERED VERTICALLY on
+    `cy` (the box's vertical midpoint). One <tspan> per line, stacked downward
+    by the 10px font line height; the block's first line starts high enough
+    that the whole stack straddles `cy`."""
+    LINE_H = 10.0
+    y0 = cy - (len(lines) - 1) * LINE_H / 2.0
     spans = "".join(
-        f'<tspan x="{tx}" dy="{0 if k == 0 else 10}">{ln}</tspan>'
+        f'<tspan x="{tx}" dy="{0 if k == 0 else LINE_H}">{ln}</tspan>'
         for k, ln in enumerate(lines)
     )
-    return (f'    <text id="{el_id}" x="{tx}" y="{ty}" '
+    return (f'    <text id="{el_id}" x="{tx}" y="{y0}" '
             f'style="font-family:Arial;font-size:10px;fill:{color};'
-            f'text-anchor:start;dominant-baseline:hanging;'
+            f'text-anchor:start;dominant-baseline:central;'
             f'font-weight:bold">{spans}</text>')
 
 
@@ -360,7 +364,7 @@ def _overlay_rects(base_svg, out_path, box_layers, label, layer_boxes=None):
         if match is not None:
             lines = _layer_label(match)
             _tally(lines)
-            els.append(_corner_text(f"layers_{prefix}_{i}", x + 3, y + 3,
+            els.append(_corner_text(f"layers_{prefix}_{i}", x + 3, y + h / 2.0,
                                     color, lines))
         total += 1
 
