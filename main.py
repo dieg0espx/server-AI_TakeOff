@@ -778,8 +778,18 @@ def run_pipeline_with_logging(upload_id: str):
         # overwrite each other. Skip layers Step18 didn't produce (e.g. no
         # Step13.svg -> no crossbars.svg); not an upload failure.
         upload_jobs = []
-        for layer in ("alumBeams", "crossbars", "frames", "shores", "wood"):
-            layer_path = os.path.join("files", f"{layer}.svg")
+        # step11 is re-uploaded here because Step18 may have merged piggyback
+        # pairs onto the Main drawing after the earlier Step11 upload.
+        for layer, fname in (
+            ("step11", "Step11.svg"),
+            ("alumBeams", "alumBeams.svg"),
+            ("crossbars", "crossbars.svg"),
+            ("frames", "frames.svg"),
+            ("shores", "shores.svg"),
+            ("wood", "wood.svg"),
+            ("hardware", "hardware.svg"),
+        ):
+            layer_path = os.path.join("files", fname)
             if not os.path.exists(layer_path):
                 print(f"⚠️  {layer_path} not found — skipping")
                 continue

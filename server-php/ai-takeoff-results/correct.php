@@ -242,7 +242,8 @@ try {
             $newCat = (substr($newType, 0, 8) === 'alumBeam') ? 'alumBeams'
                 : ((substr($newType, -5) === 'Frame') ? 'frames'
                 : ((substr($newType, 0, 6) === 'shore_') ? 'shores'
-                : ((substr($newType, 0, 9) === 'crossbar_') ? 'crossbars' : 'other')));
+                : ((substr($newType, 0, 9) === 'crossbar_') ? 'crossbars'
+                : ((in_array($newType, ['uhead', 'baseplate'], true)) ? 'hardware' : 'other'))));
             $newEntry = ['category' => $newCat, 'type' => $newType];
             applyDelta($alumBeams, $shapes, $crossbars, $frames, $newEntry, +1);
             $elements[$id] = $newEntry;
@@ -334,7 +335,8 @@ try {
                 : ((substr($newType, -5) === 'Frame') ? 'frames'
                 : ((substr($newType, 0, 6) === 'shore_') ? 'shores'
                 : ((substr($newType, 0, 9) === 'crossbar_') ? 'crossbars'
-                : ($entry['category'] ?? ''))));
+                : ((in_array($newType, ['uhead', 'baseplate'], true)) ? 'hardware'
+                : ($entry['category'] ?? '')))));
             if ($isCrossbar) {
                 foreach (array_keys($elements) as $ek) {
                     if (strpos($ek, $base) === 0) {

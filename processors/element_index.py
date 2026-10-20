@@ -18,6 +18,10 @@ Sources (all in files/ after Step18 runs, before cleanup):
 
 Wood beams are synthesized <line> elements with NO ids, so they cannot be
 addressed by path id and are intentionally absent from the index.
+
+Hardware (U/head + base plate) circles are drawn in hardware.svg with stable
+ids (`hardware_uhead_*` / `hardware_baseplate_*`) and are indexed from that
+SVG after Step18.
 """
 
 import json
@@ -34,7 +38,26 @@ def _category_for_class(cls: str) -> str:
         return "frames"
     if c.startswith("shore_"):
         return "shores"
+    if c in ("uhead", "baseplate", "hardware_uhead", "hardware_baseplate"):
+        return "hardware"
     return "other"
+
+
+def _hardware_from_svg(svg_path):
+    """Return {circle_id: {category, type}} for U/head + base-plate circles."""
+    out = {}
+    try:
+        with open(svg_path, "r", encoding="utf-8") as f:
+            text = f.read()
+    except Exception:
+        return out
+    for m in _HARDWARE_CIRCLE_RE.finditer(text):
+        lid = m.group("id")
+        if "baseplate" in lid:
+            out[lid] = {"category": "hardware", "type": "baseplate"}
+        else:
+            out[lid] = {"category": "hardware", "type": "uhead"}
+    return out
 
 
 # crossbar line stroke color -> type label. These hexes MUST match the palette
@@ -58,6 +81,12 @@ _CROSSBAR_LINE_RE = re.compile(
     re.DOTALL,
 )
 _STROKE_RE = re.compile(r'stroke[:=]"?#([0-9a-fA-F]{6})', re.IGNORECASE)
+
+# Nested corner circles from hardware.svg (U/head + base plate).
+_HARDWARE_CIRCLE_RE = re.compile(
+    r'<circle\b[^>]*\bid="(?P<id>hardware_(?:uhead|baseplate)_[^"]+)"[^>]*?/>',
+    re.DOTALL,
+)
 
 
 def _load_json(path):
@@ -226,5 +255,12 @@ def build_element_index(base_dir="files"):
             if cb:
                 index.update(cb)
                 break
+
+    # U/heads + base plates from hardware.svg (nested corner circles).
+    hw_path = os.path.join(base_dir, "hardware.svg")
+    if os.path.exists(hw_path):
+        hw = _hardware_from_svg(hw_path)
+        if hw:
+            index.update(hw)
 
     return index

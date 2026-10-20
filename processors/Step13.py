@@ -625,7 +625,8 @@ def process_container_group(prefix, containers, paths, svg_content):
                 frame = 6
 
         container_summary[containers[num]['id']] = {
-            "crossbar": crossbar if crossbar is not None else 7,
+            # Null when no span digit on this bay — caller uses approved default.
+            "crossbar": crossbar,
             "frame": frame,
         }
 
@@ -750,62 +751,112 @@ CROSS_BAR_COLOR_HEX = {
 }
 
 
-def read_container_span(container, paths, default_span):
+def _glyph_center(g):
+    x0, y0, x1, y1 = g['screen_bbox']
+    return (x0 + x1) / 2.0, (y0 + y1) / 2.0
+
+
+def _digits_near_apostrophes(glyphs, max_dist=22.0):
+    """Digits that belong to a frame-height mark (paired with a foot mark).
+
+    Each apostrophe claims its NEAREST digit within max_dist (one-to-one),
+    matching how frame stacks are read. That way a co-located bay-size mark
+    like "5 X 4" is not swallowed by the foot marks of a "6'+6'" stack in the
+    same container.
+    """
+    apostrophes = [g for g in glyphs if g.get('digit') == 'apostrophe']
+    digits = [g for g in glyphs if g.get('digit') in ('3', '4', '5', '6', '7')]
+    if not apostrophes or not digits:
+        return set()
+    paired = set()
+    used = set()
+    for ap in apostrophes:
+        ax, ay = _glyph_center(ap)
+        best, best_d = None, None
+        for g in digits:
+            if id(g) in used:
+                continue
+            gx, gy = _glyph_center(g)
+            dist = (gx - ax) ** 2 + (gy - ay) ** 2
+            if dist > max_dist ** 2:
+                continue
+            if best_d is None or dist < best_d:
+                best_d = dist
+                best = g
+        if best is not None:
+            paired.add(id(best))
+            used.add(id(best))
+    return paired
+
+
+def read_container_span(container, paths, default_span=None):
     """
     Read the span digit from a green container's glyphs.
 
-    An annotation like "4 X 5" means span=4, frame width=5. The SPAN is the
-    FIRST digit read along the text baseline. These marks are drawn at any
-    angle — horizontal, vertical, or on a DIAGONAL (e.g. "4 X 5" running
-    bottom-left -> top-right) — so we order the digits along the direction the
-    text actually runs rather than assuming a pure top/left axis. Containers
-    with no digit spec fall back to `default_span`.
+    An annotation like "4 X 5" / "5 X 4" (digits + slash/backslash X) means
+    span = FIRST digit along the text baseline, frame width = second. These
+    marks are drawn at any angle.
 
-    Returns the span as a string like "4'", or default if none found.
+    A container may ALSO carry frame-height marks ("6'+6'") that use
+    apostrophes and an axis-aligned +. Those must NOT suppress the span
+    mark — only digits paired with an apostrophe are ignored for span.
+    If no span-style mark is present on THIS bay, return `default_span`
+    (do not inherit from a stacked piggyback partner — the "N X N" mark
+    applies only to the bay it is drawn on).
+
+    Returns the span as a string like "5'", or default_span if none found.
     """
     contained = find_contained_paths({0: container}, paths)
     analyzed = find_glyph_paths(contained)
     glyphs = analyzed.get(0, {}).get('glyphs', [])
 
-    # An apostrophe/foot mark means the numbers are a DIMENSION (e.g. 5'6"),
-    # not a cross-bar size — so this annotation uses the drawing default.
-    if any(g.get('digit') == 'apostrophe' for g in glyphs):
+    height_digit_ids = _digits_near_apostrophes(glyphs)
+    has_slash_x = any(g.get('digit') in ('slash', 'backslash') for g in glyphs)
+
+    # Prefer span-style digits: not paired with a foot mark. When a slash X is
+    # present those are the "N X N" bay-size numbers (e.g. 5 X 4 on top of a
+    # tower that also has 6'+6' height marks).
+    span_digits = [
+        g for g in glyphs
+        if g.get('digit') in ('4', '5', '6', '7') and id(g) not in height_digit_ids
+    ]
+
+    if not span_digits:
         return default_span
 
-    digit_glyphs = [g for g in glyphs if g.get('digit') in ('4', '5', '6', '7')]
-    if not digit_glyphs:
-        return default_span
-
-    first = _first_digit_along_baseline(digit_glyphs)
+    # Diagonal slash-X labels are often nearly square in spread; prefer
+    # top-to-bottom when vertical run dominates so "5" above "4" reads as
+    # span 5' (→ green 5x4), matching the drawn order.
+    first = _first_digit_along_baseline(
+        span_digits, prefer_vertical=has_slash_x)
     return f"{first['digit']}'"
 
 
-def _first_digit_along_baseline(digit_glyphs):
+def _first_digit_along_baseline(digit_glyphs, prefer_vertical=False):
     """Return the digit glyph that comes FIRST in reading order.
 
     The size marks ("N X N") are drawn at arbitrary angles. Reading convention
-    is left-to-right, falling back to top-to-bottom only when the text is
-    steeply vertical (digits stacked with little horizontal separation). We
-    compare the horizontal vs vertical spread of the digit cloud to decide
-    which axis the text runs along, then take the leading glyph on that axis.
+    is left-to-right, falling back to top-to-bottom when the text is steeply
+    vertical (or, for slash-X diagonal marks, when vertical spread >=
+    horizontal). We compare the horizontal vs vertical spread of the digit
+    cloud to decide which axis the text runs along, then take the leading
+    glyph on that axis.
     """
-    def center(g):
-        x0, y0, x1, y1 = g['screen_bbox']
-        return (x0 + x1) / 2.0, (y0 + y1) / 2.0
-
-    cs = [center(g) for g in digit_glyphs]
+    cs = [_glyph_center(g) for g in digit_glyphs]
     xs = [c[0] for c in cs]
     ys = [c[1] for c in cs]
     x_spread = max(xs) - min(xs)
     y_spread = max(ys) - min(ys)
 
-    # Steeply vertical text (stacked digits): order top-to-bottom. Otherwise
-    # order left-to-right — this covers horizontal AND diagonal marks like
-    # "4 X 5", whose digits still progress left-to-right along the baseline.
-    if y_spread > x_spread * 1.5:
-        key = lambda g: center(g)[1]
+    if prefer_vertical:
+        vertical = y_spread >= x_spread
     else:
-        key = lambda g: center(g)[0]
+        vertical = y_spread > x_spread * 1.5
+
+    if vertical:
+        key = lambda g: _glyph_center(g)[1]
+    else:
+        key = lambda g: _glyph_center(g)[0]
     return sorted(digit_glyphs, key=key)[0]
 
 
@@ -1022,14 +1073,26 @@ def add_crossbar_lines(svg_content, paths, default_span, default_height,
             r'\s+width="([\d.]+)"\s+height="([\d.]+)"',
             re.DOTALL,
         )
+        entries = []
         for m in rect_re.finditer(svg_content):
             num, x, y, w, h = m.groups()
             x = float(x); y = float(y); w = float(w); h = float(h)
-
             container = {'id': f'{prefix}_{num}',
                          'screen_bbox': (x, y, x + w, y + h)}
-            span = read_container_span(container, paths, default_span)
-            frames = read_container_frames(container, paths, default_height)
+            entries.append({
+                'num': num, 'x': x, 'y': y, 'w': w, 'h': h,
+                'container': container,
+                # Span mark applies only to the bay it is drawn on — bottom
+                # bays of a piggyback stack keep the drawing default.
+                'span': read_container_span(container, paths, default_span),
+                'frames': read_container_frames(container, paths, default_height),
+            })
+
+        for e in entries:
+            num, x, y, w, h = e['num'], e['x'], e['y'], e['w'], e['h']
+            container = e['container']
+            span = e['span']
+            frames = e['frames']
             n_frames = len(frames)
             frame_counts[n_frames] = frame_counts.get(n_frames, 0) + 1
 
@@ -1142,12 +1205,13 @@ def extract_default_frame_spec(extracted_text):
 Find the DEFAULT FRAME specification note. It usually reads like:
 "ALL FRAMES TO BE 6' HIGH X 4' WIDE HEAVY DUTY(10K/LEG) WITH 7' BRACING TYP"
 
-Extract ONLY these two values:
+Extract ONLY these three values:
 - height_ft: the frame HIGH/HEIGHT value in feet (integer or decimal)
+- width_ft: the frame WIDE/WIDTH value in feet (integer or decimal; usually 4)
 - bracing_ft: the BRACING value in feet (integer or decimal)
 
 Return STRICT JSON with exactly these keys and nothing else:
-{{"height_ft": <number or null>, "bracing_ft": <number or null>}}
+{{"height_ft": <number or null>, "width_ft": <number or null>, "bracing_ft": <number or null>}}
 
 Use null for any value not present. Do not include units, comments, or extra text.
 
@@ -1161,7 +1225,8 @@ OCR TEXT:
             contents=prompt,
             config=types.GenerateContentConfig(
                 temperature=0.0,
-                max_output_tokens=200,
+                max_output_tokens=1024,
+                thinking_config=types.ThinkingConfig(thinking_budget=0),
             )
         )
 
@@ -1180,6 +1245,7 @@ OCR TEXT:
         spec = json.loads(m.group(0))
         result = {
             "height_ft": spec.get("height_ft"),
+            "width_ft": spec.get("width_ft"),
             "bracing_ft": spec.get("bracing_ft"),
         }
         print(f"✅ Default frame spec: {result}")
@@ -1235,11 +1301,31 @@ def run_step13():
             except (json.JSONDecodeError, Exception):
                 data = {}
 
-        # Pull default frame spec (height_ft, bracing_ft) from the drawing's
-        # OCR text via Gemini.
-        frame_spec = extract_default_frame_spec(data.get('extracted_text', ''))
+        # Prefer user-approved defaults from the upload UI (already in
+        # data.json). Otherwise pull height_ft / bracing_ft from OCR via Gemini.
+        existing_spec = data.get('default_frame_spec') if isinstance(data.get('default_frame_spec'), dict) else None
+        if (
+            existing_spec
+            and existing_spec.get('approved')
+            and existing_spec.get('height_ft') is not None
+            and existing_spec.get('bracing_ft') is not None
+        ):
+            frame_spec = {
+                "height_ft": existing_spec.get("height_ft"),
+                "width_ft": existing_spec.get("width_ft"),
+                "bracing_ft": existing_spec.get("bracing_ft"),
+                "height_stack": existing_spec.get("height_stack"),
+                "approved": True,
+                "source": existing_spec.get("source", "user"),
+            }
+            print(f"✅ Using user-approved default frame spec: {frame_spec}")
+        else:
+            frame_spec = extract_default_frame_spec(data.get('extracted_text', ''))
+            if frame_spec is not None:
+                data['default_frame_spec'] = frame_spec
+
         if frame_spec is not None:
-            data['default_frame_spec'] = frame_spec
+            data['default_frame_spec'] = {**(data.get('default_frame_spec') or {}), **frame_spec}
 
         with open(data_path, 'w') as f:
             json.dump(data, f, indent=4)
@@ -1248,72 +1334,75 @@ def run_step13():
         # ── Draw crossbar color lines on Step13.svg ──
         # Each green container's span is read from its glyphs (e.g. "5x4" ->
         # span 5). Containers with no digits fall back to the drawing default
-        # bracing. Span maps to a cross bar color via the 6' & 5' table.
-        default_bracing = None
-        default_height = None
-        if frame_spec:
-            default_bracing = frame_spec.get('bracing_ft')
-            default_height = frame_spec.get('height_ft')
-        if default_bracing is None:
-            default_bracing = 7  # drawing default when spec unavailable
-        if default_height is None:
-            default_height = 6  # drawing default when spec unavailable
-        default_span = f"{int(default_bracing)}'"
+        # bracing (approved on upload, or OCR/Gemini). Never invent height/bracing.
+        default_bracing = frame_spec.get('bracing_ft') if frame_spec else None
+        default_height = frame_spec.get('height_ft') if frame_spec else None
+        if default_bracing is None or default_height is None:
+            print(
+                "❌ Missing height_ft/bracing_ft in default_frame_spec — "
+                "refusing hardcoded fallbacks. Approve defaults on the upload screen."
+            )
+            success = False
+        else:
+            default_span = f"{int(default_bracing)}'"
 
-        # Full default height stack from the note (e.g. "5'+5'" -> [5, 5]) so
-        # default (unnumbered) frames can be labeled with the real stack rather
-        # than a single height. Falls back to a single default_height layer.
-        default_stack = extract_default_height_stack(data.get('extracted_text', ''))
-        if not default_stack:
-            default_stack = [int(default_height)]
+            # Full default height stack: prefer the approved stack, else parse the
+            # note (e.g. "5'+5'" -> [5, 5]), else a single default_height layer.
+            default_stack = []
+            if frame_spec and isinstance(frame_spec.get('height_stack'), list):
+                default_stack = [int(v) for v in frame_spec['height_stack'] if v is not None]
+            if not default_stack:
+                default_stack = extract_default_height_stack(data.get('extracted_text', ''))
+            if not default_stack:
+                default_stack = [int(default_height)]
 
-        if os.path.exists(out_path):
-            import xml.etree.ElementTree as _ET
-            _root = _ET.parse(out_path).getroot()
-            green_paths = get_g10_paths(_root)
+            if os.path.exists(out_path):
+                import xml.etree.ElementTree as _ET
+                _root = _ET.parse(out_path).getroot()
+                green_paths = get_g10_paths(_root)
 
-            # Safeguard: warn if any apostrophe/dimension mark was missed, so a
-            # new coordinate variant can't silently corrupt the frame counts.
-            for _pre in ('green_container', 'orange_container',
-                         'pink_container'):
-                warn_unmatched_apostrophes(get_containers(_root, _pre), green_paths)
+                # Safeguard: warn if any apostrophe/dimension mark was missed, so a
+                # new coordinate variant can't silently corrupt the frame counts.
+                for _pre in ('green_container', 'orange_container',
+                             'pink_container'):
+                    warn_unmatched_apostrophes(get_containers(_root, _pre), green_paths)
 
-            with open(out_path, 'r', encoding='utf-8') as f:
-                svg_content = f.read()
-            svg_content, n_lines, color_counts, frame_counts, layer_boxes = add_crossbar_lines(
-                svg_content, green_paths, default_span, default_height,
-                default_stack=default_stack)
-            with open(out_path, 'w', encoding='utf-8') as f:
-                f.write(svg_content)
+                with open(out_path, 'r', encoding='utf-8') as f:
+                    svg_content = f.read()
+                svg_content, n_lines, color_counts, frame_counts, layer_boxes = add_crossbar_lines(
+                    svg_content, green_paths, default_span, default_height,
+                    default_stack=default_stack)
+                with open(out_path, 'w', encoding='utf-8') as f:
+                    f.write(svg_content)
 
-            # Persist per-container layer counts so Step18 can label frames.svg.
-            layers_path = os.path.join(os.path.dirname(out_path), 'tempData',
-                                       'frame_layers.json')
-            try:
-                os.makedirs(os.path.dirname(layers_path), exist_ok=True)
-                with open(layers_path, 'w', encoding='utf-8') as f:
-                    json.dump(layer_boxes, f, indent=4)
-                print(f"✅ Saved {len(layer_boxes)} frame layer count(s) to {layers_path}")
-            except Exception as _e:
-                print(f"⚠️  Step13: could not write frame_layers.json: {_e}")
-            print(f"✅ Added crossbar lines to {n_lines} annotation(s) in Step13.svg")
-            print(f"   Color breakdown: {color_counts}")
-            print(f"   Frames-per-annotation breakdown: {frame_counts}")
+                # Persist per-container layer counts so Step18 can label frames.svg.
+                layers_path = os.path.join(os.path.dirname(out_path), 'tempData',
+                                           'frame_layers.json')
+                try:
+                    os.makedirs(os.path.dirname(layers_path), exist_ok=True)
+                    with open(layers_path, 'w', encoding='utf-8') as f:
+                        json.dump(layer_boxes, f, indent=4)
+                    print(f"✅ Saved {len(layer_boxes)} frame layer count(s) to {layers_path}")
+                except Exception as _e:
+                    print(f"⚠️  Step13: could not write frame_layers.json: {_e}")
+                print(f"✅ Added crossbar lines to {n_lines} annotation(s) in Step13.svg")
+                print(f"   Color breakdown: {color_counts}")
+                print(f"   Frames-per-annotation breakdown: {frame_counts}")
 
-            # Crossbar counts ARE the annotation lines: one colored line was
-            # drawn per frame, so each color's line count is that crossbar
-            # color's total. Persist these to data.json for Step13b/downstream.
-            crossbar_totals = {f"crossbar_{name}": n
-                               for name, n in sorted(color_counts.items())}
-            crossbar_totals['total'] = sum(color_counts.values())
-            frame_totals = {f"frame_{k}": v
-                            for k, v in sorted(frame_counts.items())}
-            frame_totals['total'] = sum(frame_counts.values())
-            data['crossbar_totals'] = crossbar_totals
-            data['frame_totals'] = frame_totals
-            with open(data_path, 'w') as f:
-                json.dump(data, f, indent=4)
-            print(f"✅ Saved crossbar_totals/frame_totals to data.json")
+                # Crossbar counts ARE the annotation lines: one colored line was
+                # drawn per frame, so each color's line count is that crossbar
+                # color's total. Persist these to data.json for Step13b/downstream.
+                crossbar_totals = {f"crossbar_{name}": n
+                                   for name, n in sorted(color_counts.items())}
+                crossbar_totals['total'] = sum(color_counts.values())
+                frame_totals = {f"frame_{k}": v
+                                for k, v in sorted(frame_counts.items())}
+                frame_totals['total'] = sum(frame_counts.values())
+                data['crossbar_totals'] = crossbar_totals
+                data['frame_totals'] = frame_totals
+                with open(data_path, 'w') as f:
+                    json.dump(data, f, indent=4)
+                print(f"✅ Saved crossbar_totals/frame_totals to data.json")
 
         print(f"\n✓ Step13 completed")
         return success
